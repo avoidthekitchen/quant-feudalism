@@ -1,10 +1,12 @@
 {
   "name": "quant-feudalism",
   "private": true,
+  "type": "module",
   "version": "0.0.1",
   "scripts": {
     "dev": "npx vite",
     "build": "npx vite build",
+    "test": "node --test --experimental-strip-types src/game/*.test.ts",
     "preview": "npx vite preview",
     "deploy": "npx vite build && npx wrangler deploy"
   },

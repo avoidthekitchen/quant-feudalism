@@ -15,6 +15,12 @@ Build the production bundle with:
 npm run build
 ```
 
+Run the automated state and rewind tests with:
+
+```sh
+npm test
+```
+
 ## Core Loop
 
 Start in the shop, buy Compute Credits with shop credits, deploy into the arena, defeat drones, and extract at the northern gate. Clearing all drones pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving drones void the clear bonus.
@@ -37,11 +43,27 @@ Integrity does not automatically refill after extraction. Repairs must be bought
 - Repair amount: `25` Integrity.
 - Repair cost: `180` Compute Credits.
 
+Quantum Tuner charges are bought in the Workshop and banked across runs:
+
+- Starting charges: `1`.
+- Tuner cost: `250` Compute Credits.
+- Charge cap: `3`.
+- Charges persist until spent on Collapse.
+
 Compute Rate Limit can be upgraded permanently:
 
 - Upgrade amount: `+16` Compute Rate Limit.
 - First upgrade cost: `42` shop credits.
 - Each later upgrade costs `28` more shop credits than the previous one.
+
+## Arena Controls
+
+- Move: `W A S D`
+- Dash: `Space`
+- Melee: `Left Click`
+- Ranged: `Right Click`
+- Collapse: `Q`
+- Extract: `F` at the gate
 
 ## Player Movement
 
@@ -98,6 +120,20 @@ If the same action is repeated during the final `90ms` before its cooldown compl
 A successful cache hit shows a cache visual near the player and posts a status note. A ready visual appears during the cache timing window for each action. Pressing the repeated action too early invalidates the cache discount for that cooldown cycle and shows a miss visual. Pressing after the cooldown has fully ended still performs the action, but at full cost.
 
 Cache timing is tracked separately per action, so mixed cached combos are possible. For example, a player can use ranged, use melee, hit the melee cache window, and then hit the ranged cache window if each repeated action lands in its own timing window. Cached chains can continue as long as each repeat is timed correctly, the player is not Compute Rate Limited, and there are positive Compute Credits available.
+
+## Quantum Tuner And Collapse
+
+Press `Q` in the Arena to trigger Collapse if at least one Quantum Tuner charge is banked and there is at least five seconds of recorded timeline history.
+
+- Each Collapse consumes `1` banked Quantum Tuner charge.
+- Collapse rewinds the exact authoritative Arena state by `5s`.
+- The visible rewind effect compresses those `5s` into a `1s` cinematic backward scrub before control resumes.
+- Player position, movement state, cooldowns, compute recovery delay, integrity, Compute Rate Limit, Compute Credits, kills, and prompt/status text revert to the earlier snapshot.
+- Enemies return to their earlier positions and state, including resurrection of enemies that were dead in the discarded timeline.
+- Projectiles and arena clear-state also revert to the earlier snapshot.
+- A faint persistent quantum trail shows the recent 5-second path and rewind destination while you play.
+- After Collapse, a subtle non-interactive ghost replays the discarded player timeline at normal speed.
+- Up to `15s` of history are retained, so multiple banked charges can be chained immediately for deeper rewinds.
 
 ## Enemies
 

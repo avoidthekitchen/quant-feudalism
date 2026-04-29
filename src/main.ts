@@ -34,15 +34,21 @@ const deployButton = document.querySelector<HTMLButtonElement>("#deploy-button")
 const healButton = document.querySelector<HTMLButtonElement>("#heal-button");
 const healLabel = document.querySelector<HTMLElement>("#heal-label");
 const healCostLabel = document.querySelector<HTMLElement>("#heal-cost-label");
+const quantumTunerButton = document.querySelector<HTMLButtonElement>("#quantum-tuner-button");
+const quantumTunerLabel = document.querySelector<HTMLElement>("#quantum-tuner-label");
+const quantumTunerCostLabel = document.querySelector<HTMLElement>("#quantum-tuner-cost-label");
 const rateLimitButton = document.querySelector<HTMLButtonElement>("#rate-limit-button");
 const rateLimitLabel = document.querySelector<HTMLElement>("#rate-limit-label");
 const rateLimitCostLabel = document.querySelector<HTMLElement>("#rate-limit-cost-label");
+const quantumTunersLabel = document.querySelector<HTMLElement>("#quantum-tuners-label");
+const quantumTunerIcons = Array.from(document.querySelectorAll<HTMLElement>(".quantum-tuner-icon"));
 const shopButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".bundle-grid .shop-button"));
 const shopOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".shop-only"));
 const arenaOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".arena-only"));
 let shopModalOpen = false;
 let workshopModalOpen = false;
 const noteHistory = [gameState.notice];
+let lastHudTimelineVersion = gameState.hudTimelineVersion;
 
 function numberLabel(value: number): string {
   return value >= 0 ? Math.round(value).toString() : `-${Math.round(Math.abs(value))}`;
@@ -100,7 +106,10 @@ function renderHud(): void {
   killsLabel!.textContent = gameState.kills.toString();
   roundsLabel!.textContent = gameState.roundsFinished.toString();
 
-  if (noteHistory[0] !== gameState.notice) {
+  if (lastHudTimelineVersion !== gameState.hudTimelineVersion) {
+    noteHistory.splice(0, noteHistory.length, gameState.notice);
+    lastHudTimelineVersion = gameState.hudTimelineVersion;
+  } else if (noteHistory[0] !== gameState.notice) {
     noteHistory.unshift(gameState.notice);
     noteHistory.length = Math.min(noteHistory.length, 3);
   }
@@ -128,6 +137,17 @@ function renderHud(): void {
     gameState.allotmentCurrent < gameState.healCost;
   healLabel!.textContent = `+${gameState.healAmount} Integrity`;
   healCostLabel!.textContent = `${gameState.healCost} Compute Credits`;
+
+  quantumTunersLabel!.textContent = `${gameState.quantumTuners} / ${gameState.quantumTunerCap}`;
+  quantumTunerIcons.forEach((icon, index) => {
+    icon.classList.toggle("active", index < gameState.quantumTuners);
+  });
+  quantumTunerButton!.disabled =
+    !inShop ||
+    gameState.quantumTuners >= gameState.quantumTunerCap ||
+    gameState.allotmentCurrent < gameState.quantumTunerCost;
+  quantumTunerLabel!.textContent = `Banked Collapse Charge (${gameState.quantumTuners}/${gameState.quantumTunerCap})`;
+  quantumTunerCostLabel!.textContent = `${gameState.quantumTunerCost} Compute Credits`;
 
   const upgradeCost = gameState.getComputeRateLimitUpgradeCost();
   rateLimitButton!.disabled = !inShop || gameState.credits < upgradeCost;
@@ -160,6 +180,10 @@ shopButtons.forEach((button) => {
 
 healButton?.addEventListener("click", () => {
   gameState.repairIntegrity();
+});
+
+quantumTunerButton?.addEventListener("click", () => {
+  gameState.buyQuantumTuner();
 });
 
 rateLimitButton?.addEventListener("click", () => {

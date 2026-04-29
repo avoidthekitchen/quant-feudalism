@@ -9,7 +9,17 @@ export interface ArenaReport {
   note: string;
 }
 
-class RunState extends EventTarget {
+export interface ArenaRunStateSnapshot {
+  computeCurrent: number;
+  allotmentCurrent: number;
+  integrityCurrent: number;
+  kills: number;
+  notice: string;
+  arenaPrompt: string;
+  computeRegenDelayRemainingMs: number;
+}
+
+export class RunState extends EventTarget {
   readonly baseComputeMax = 96;
   readonly computeOverdrawCap = 64;
   readonly allotmentMax = 2800;
@@ -23,6 +33,8 @@ class RunState extends EventTarget {
   readonly healAmount = 25;
   readonly healCost = 180;
   readonly computeRateLimitUpgradeAmount = 16;
+  readonly quantumTunerCap = 3;
+  readonly quantumTunerCost = 250;
 
   credits = 92;
   computeMax = this.baseComputeMax;
@@ -32,6 +44,7 @@ class RunState extends EventTarget {
   kills = 0;
   roundsFinished = 0;
   computeRateLimitUpgrades = 0;
+  quantumTuners = 1;
   sceneMode: SceneMode = "shop";
   notice =
     "Procurement chamber online. Buy Compute Credits or deploy into the arena.";
@@ -43,9 +56,10 @@ class RunState extends EventTarget {
     allotmentSpent: 0,
     note: "No arena run recorded yet.",
   };
+  hudTimelineVersion = 0;
 
   private arenaEntryAllotment = this.allotmentCurrent;
-  private lastSpendAt = 0;
+  private computeRegenDelayRemainingMs = 0;
 
   emitChange(): void {
     this.dispatchEvent(new CustomEvent("statechange"));
@@ -90,6 +104,40 @@ class RunState extends EventTarget {
     return true;
   }
 
+  buyQuantumTuner(): boolean {
+    if (this.sceneMode !== "shop") {
+      return false;
+    }
+
+    if (this.quantumTuners >= this.quantumTunerCap) {
+      this.notice = "Quantum Tuner rack already full. Collapse capacity capped at 3 charges.";
+      this.emitChange();
+      return false;
+    }
+
+    if (this.allotmentCurrent < this.quantumTunerCost) {
+      this.notice = `Quantum Tuner denied. ${this.quantumTunerCost} Compute Credits required.`;
+      this.emitChange();
+      return false;
+    }
+
+    this.quantumTuners += 1;
+    this.allotmentCurrent -= this.quantumTunerCost;
+    this.clampComputeToCurrentAllotment();
+    this.notice = `Quantum Tuner fabricated. ${this.quantumTuners}/${this.quantumTunerCap} charge(s) banked.`;
+    this.emitChange();
+    return true;
+  }
+
+  consumeQuantumTuner(): boolean {
+    if (this.quantumTuners <= 0) {
+      return false;
+    }
+
+    this.quantumTuners -= 1;
+    return true;
+  }
+
   repairIntegrity(): boolean {
     if (this.sceneMode !== "shop") {
       return false;
@@ -109,7 +157,7 @@ class RunState extends EventTarget {
 
     this.allotmentCurrent -= this.healCost;
     this.integrityCurrent = Math.min(this.integrityMax, this.integrityCurrent + this.healAmount);
-    this.computeCurrent = Math.min(this.computeCurrent, Math.max(0, this.allotmentCurrent));
+    this.clampComputeToCurrentAllotment();
     this.notice = `Integrity restored by ${this.healAmount} for ${this.healCost} Compute Credits.`;
     this.emitChange();
     return true;
@@ -148,8 +196,8 @@ class RunState extends EventTarget {
     this.kills = 0;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
-    this.lastSpendAt = 0;
-    this.arenaPrompt = "Space dash, left click melee, right click ranged. Abilities spend Compute.";
+    this.computeRegenDelayRemainingMs = 0;
+    this.arenaPrompt = "Space dash, left click melee, right click ranged, Q collapse.";
     this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
     this.emitChange();
   }
@@ -157,6 +205,7 @@ class RunState extends EventTarget {
   restoreForShop(note?: string): void {
     this.sceneMode = "shop";
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
+    this.computeRegenDelayRemainingMs = 0;
     this.arenaPrompt = "";
     if (note) {
       this.notice = note;
@@ -184,7 +233,7 @@ class RunState extends EventTarget {
       -this.allotmentOverdrawCap,
       this.allotmentCurrent - amount,
     );
-    this.lastSpendAt = performance.now();
+    this.computeRegenDelayRemainingMs = this.computeRegenDelayMs;
     this.emitChange();
     return true;
   }
@@ -194,8 +243,18 @@ class RunState extends EventTarget {
       return;
     }
 
-    const now = performance.now();
-    if (now - this.lastSpendAt < this.computeRegenDelayMs) {
+    let regenDeltaMs = deltaMs;
+    if (this.computeRegenDelayRemainingMs > 0) {
+      const consumedDelay = Math.min(this.computeRegenDelayRemainingMs, deltaMs);
+      this.computeRegenDelayRemainingMs -= consumedDelay;
+      regenDeltaMs -= consumedDelay;
+
+      if (this.computeRegenDelayRemainingMs > 0) {
+        return;
+      }
+    }
+
+    if (regenDeltaMs <= 0) {
       return;
     }
 
@@ -206,7 +265,7 @@ class RunState extends EventTarget {
 
     this.computeCurrent = Math.min(
       target,
-      this.computeCurrent + (this.computeRegenPerSecond * deltaMs) / 1000,
+      this.computeCurrent + (this.computeRegenPerSecond * regenDeltaMs) / 1000,
     );
     this.emitChange();
   }
@@ -246,6 +305,41 @@ class RunState extends EventTarget {
 
     this.restoreForShop(note);
     return this.report;
+  }
+
+  createArenaSnapshot(): ArenaRunStateSnapshot {
+    return {
+      computeCurrent: this.computeCurrent,
+      allotmentCurrent: this.allotmentCurrent,
+      integrityCurrent: this.integrityCurrent,
+      kills: this.kills,
+      notice: this.notice,
+      arenaPrompt: this.arenaPrompt,
+      computeRegenDelayRemainingMs: this.computeRegenDelayRemainingMs,
+    };
+  }
+
+  restoreArenaSnapshot(
+    snapshot: ArenaRunStateSnapshot,
+    options: {
+      emitChange?: boolean;
+      bumpTimelineVersion?: boolean;
+    } = {},
+  ): void {
+    const { emitChange = true, bumpTimelineVersion = emitChange } = options;
+    this.computeCurrent = snapshot.computeCurrent;
+    this.allotmentCurrent = snapshot.allotmentCurrent;
+    this.integrityCurrent = snapshot.integrityCurrent;
+    this.kills = snapshot.kills;
+    this.notice = snapshot.notice;
+    this.arenaPrompt = snapshot.arenaPrompt;
+    this.computeRegenDelayRemainingMs = snapshot.computeRegenDelayRemainingMs;
+    if (bumpTimelineVersion) {
+      this.hudTimelineVersion += 1;
+    }
+    if (emitChange) {
+      this.emitChange();
+    }
   }
 
   getComputeRatio(): number {
@@ -306,6 +400,10 @@ class RunState extends EventTarget {
     }
 
     return "Nominal";
+  }
+
+  private clampComputeToCurrentAllotment(): void {
+    this.computeCurrent = Math.min(this.computeCurrent, Math.max(0, this.allotmentCurrent));
   }
 }
 
