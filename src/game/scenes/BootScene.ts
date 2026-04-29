@@ -11,7 +11,7 @@ export class BootScene extends Phaser.Scene {
   create(): void {
     createGeneratedArt(this);
     gameState.restoreForShop(
-      "Procurement chamber online. Buy more compute or deploy into the arena.",
+      "Procurement chamber online. Buy Compute Credits or deploy into the arena.",
     );
     this.scene.start(SCENES.shop);
   }

@@ -10,7 +10,7 @@ export interface ArenaReport {
 }
 
 class RunState extends EventTarget {
-  readonly computeMax = 96;
+  readonly baseComputeMax = 96;
   readonly computeOverdrawCap = 64;
   readonly allotmentMax = 2800;
   readonly allotmentOverdrawCap = 560;
@@ -20,15 +20,21 @@ class RunState extends EventTarget {
   readonly meleeCost = 18;
   readonly rangedCost = 40;
   readonly dashCost = 24;
+  readonly healAmount = 25;
+  readonly healCost = 180;
+  readonly computeRateLimitUpgradeAmount = 16;
 
   credits = 92;
+  computeMax = this.baseComputeMax;
   computeCurrent = this.computeMax;
   allotmentCurrent = 1640;
   integrityCurrent = this.integrityMax;
   kills = 0;
+  roundsFinished = 0;
+  computeRateLimitUpgrades = 0;
   sceneMode: SceneMode = "shop";
   notice =
-    "Procurement chamber online. Buy more compute or deploy into the arena.";
+    "Procurement chamber online. Buy Compute Credits or deploy into the arena.";
   report: ArenaReport = {
     status: "retreated",
     kills: 0,
@@ -55,13 +61,13 @@ class RunState extends EventTarget {
     }
 
     if (this.credits < cost) {
-      this.notice = "Credit authorization denied. Defeat more drones or buy cheaper compute.";
+      this.notice = "Shop credit authorization denied. Defeat more drones or buy cheaper Compute Credits.";
       this.emitChange();
       return false;
     }
 
     if (this.allotmentCurrent >= this.allotmentMax) {
-      this.notice = "Allotment reservoir already full. The corporations will not sell excess.";
+      this.notice = "Compute Credit reserve already full. The corporations will not sell excess.";
       this.emitChange();
       return false;
     }
@@ -69,7 +75,60 @@ class RunState extends EventTarget {
     this.credits -= cost;
     this.allotmentCurrent = Math.min(this.allotmentMax, this.allotmentCurrent + amount);
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    this.notice = `Procured ${amount} allotment units for ${cost} credits.`;
+    this.notice = `Procured ${amount} Compute Credits for ${cost} shop credits.`;
+    this.emitChange();
+    return true;
+  }
+
+  repairIntegrity(): boolean {
+    if (this.sceneMode !== "shop") {
+      return false;
+    }
+
+    if (this.integrityCurrent >= this.integrityMax) {
+      this.notice = "Integrity already restored. No repair contract issued.";
+      this.emitChange();
+      return false;
+    }
+
+    if (this.allotmentCurrent < this.healCost) {
+      this.notice = `Repair denied. ${this.healCost} Compute Credits required.`;
+      this.emitChange();
+      return false;
+    }
+
+    this.allotmentCurrent -= this.healCost;
+    this.integrityCurrent = Math.min(this.integrityMax, this.integrityCurrent + this.healAmount);
+    this.computeCurrent = Math.min(this.computeCurrent, Math.max(0, this.allotmentCurrent));
+    this.notice = `Integrity restored by ${this.healAmount} for ${this.healCost} Compute Credits.`;
+    this.emitChange();
+    return true;
+  }
+
+  getComputeRateLimitUpgradeCost(): number {
+    return 42 + this.computeRateLimitUpgrades * 28;
+  }
+
+  upgradeComputeRateLimit(): boolean {
+    if (this.sceneMode !== "shop") {
+      return false;
+    }
+
+    const cost = this.getComputeRateLimitUpgradeCost();
+    if (this.credits < cost) {
+      this.notice = `Compute Rate Limit upgrade denied. ${cost} shop credits required.`;
+      this.emitChange();
+      return false;
+    }
+
+    this.credits -= cost;
+    this.computeRateLimitUpgrades += 1;
+    this.computeMax += this.computeRateLimitUpgradeAmount;
+    this.computeCurrent = Math.min(
+      this.computeMax,
+      this.computeCurrent + this.computeRateLimitUpgradeAmount,
+    );
+    this.notice = `Compute Rate Limit increased to ${this.computeMax}.`;
     this.emitChange();
     return true;
   }
@@ -77,17 +136,15 @@ class RunState extends EventTarget {
   beginArena(): void {
     this.sceneMode = "arena";
     this.kills = 0;
-    this.integrityCurrent = this.integrityMax;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
     this.lastSpendAt = 0;
-    this.notice = "Deployment accepted. Exit through the northern gate before the reserve collapses.";
+    this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
     this.emitChange();
   }
 
   restoreForShop(note?: string): void {
     this.sceneMode = "shop";
-    this.integrityCurrent = this.integrityMax;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     if (note) {
       this.notice = note;
@@ -151,6 +208,10 @@ class RunState extends EventTarget {
   }
 
   finishArena(status: ArenaOutcome, note: string): ArenaReport {
+    if (status === "cleared") {
+      this.roundsFinished += 1;
+    }
+
     const creditsEarned =
       status === "cleared"
         ? this.kills * 12 + 36

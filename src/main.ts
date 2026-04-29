@@ -14,11 +14,18 @@ const creditsLabel = document.querySelector<HTMLElement>("#credits-label");
 const integrityLabel = document.querySelector<HTMLElement>("#integrity-label");
 const throttleLabel = document.querySelector<HTMLElement>("#throttle-label");
 const killsLabel = document.querySelector<HTMLElement>("#kills-label");
+const roundsLabel = document.querySelector<HTMLElement>("#rounds-label");
 const statusNote = document.querySelector<HTMLParagraphElement>("#status-note");
 const reportNote = document.querySelector<HTMLParagraphElement>("#report-note");
 const shopPanel = document.querySelector<HTMLElement>("#shop-panel");
 const deployButton = document.querySelector<HTMLButtonElement>("#deploy-button");
-const shopButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".shop-button"));
+const healButton = document.querySelector<HTMLButtonElement>("#heal-button");
+const healLabel = document.querySelector<HTMLElement>("#heal-label");
+const healCostLabel = document.querySelector<HTMLElement>("#heal-cost-label");
+const rateLimitButton = document.querySelector<HTMLButtonElement>("#rate-limit-button");
+const rateLimitLabel = document.querySelector<HTMLElement>("#rate-limit-label");
+const rateLimitCostLabel = document.querySelector<HTMLElement>("#rate-limit-cost-label");
+const shopButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".bundle-grid .shop-button"));
 const shopOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".shop-only"));
 const arenaOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".arena-only"));
 
@@ -35,7 +42,7 @@ function renderHud(): void {
   const allotmentRatio = Math.max(0, Math.min(1, gameState.allotmentCurrent / gameState.allotmentMax));
   const throttle = gameState.getThrottleSeverity();
   const inShop = gameState.sceneMode === "shop";
-  const deployDisabled = !inShop || gameState.allotmentCurrent <= 0;
+  const deployDisabled = !inShop || gameState.allotmentCurrent <= 0 || gameState.integrityCurrent <= 0;
 
   sceneChip.textContent = inShop ? "Shop" : "Arena";
   computeFill.style.width = `${computeRatio * 100}%`;
@@ -49,17 +56,32 @@ function renderHud(): void {
   integrityLabel!.textContent = `${Math.round(gameState.integrityCurrent)} / ${gameState.integrityMax}`;
   throttleLabel!.textContent = gameState.getThrottleLabel();
   killsLabel!.textContent = gameState.kills.toString();
+  roundsLabel!.textContent = gameState.roundsFinished.toString();
   statusNote!.textContent = gameState.notice;
   reportNote!.textContent =
-    `${gameState.report.note} Credits +${gameState.report.creditsEarned}. Allotment spent ${Math.round(gameState.report.allotmentSpent)}.`;
+    `${gameState.report.note} Shop Credits +${gameState.report.creditsEarned}. Compute Credits spent ${Math.round(gameState.report.allotmentSpent)}.`;
 
   shopOnlyPanels.forEach((panel) => panel.classList.toggle("hidden", !inShop));
   arenaOnlyPanels.forEach((panel) => panel.classList.toggle("hidden", inShop));
 
   deployButton!.disabled = deployDisabled;
   deployButton!.textContent = deployDisabled
-    ? "Allotment Required"
+    ? gameState.integrityCurrent <= 0
+      ? "Repair Integrity Required"
+      : "Compute Credits Required"
     : "Enter Arena";
+
+  healButton!.disabled =
+    !inShop ||
+    gameState.integrityCurrent >= gameState.integrityMax ||
+    gameState.allotmentCurrent < gameState.healCost;
+  healLabel!.textContent = `+${gameState.healAmount} Integrity`;
+  healCostLabel!.textContent = `${gameState.healCost} Compute Credits`;
+
+  const upgradeCost = gameState.getComputeRateLimitUpgradeCost();
+  rateLimitButton!.disabled = !inShop || gameState.credits < upgradeCost;
+  rateLimitLabel!.textContent = `+${gameState.computeRateLimitUpgradeAmount} Compute Rate Limit`;
+  rateLimitCostLabel!.textContent = `${upgradeCost} shop credits`;
 
   shopButtons.forEach((button) => {
     const amount = Number(button.dataset.amount);
@@ -68,7 +90,7 @@ function renderHud(): void {
       !inShop || gameState.credits < cost || gameState.allotmentCurrent >= gameState.allotmentMax;
     const bundle = SHOP_BUNDLES.find((item) => item.amount === amount && item.cost === cost);
     if (bundle) {
-      button.setAttribute("aria-label", `${bundle.label}: buy ${amount} allotment for ${cost} credits`);
+      button.setAttribute("aria-label", `${bundle.label}: buy ${amount} Compute Credits for ${cost} shop credits`);
     }
   });
 
@@ -83,8 +105,20 @@ shopButtons.forEach((button) => {
   });
 });
 
+healButton?.addEventListener("click", () => {
+  gameState.repairIntegrity();
+});
+
+rateLimitButton?.addEventListener("click", () => {
+  gameState.upgradeComputeRateLimit();
+});
+
 deployButton?.addEventListener("click", () => {
-  if (gameState.sceneMode !== "shop" || gameState.allotmentCurrent <= 0) {
+  if (
+    gameState.sceneMode !== "shop" ||
+    gameState.allotmentCurrent <= 0 ||
+    gameState.integrityCurrent <= 0
+  ) {
     return;
   }
 

@@ -68,7 +68,7 @@ export class ShopScene extends Phaser.Scene {
       .setLetterSpacing(4);
 
     this.add
-      .text(96, 612, "Deploy from the side panel. Compute purchases refill the reserve, not the pain.", {
+      .text(96, 612, "Deploy from the side panel. Compute Credit purchases refill the reserve, not the pain.", {
         fontFamily: "Azeret Mono, monospace",
         fontSize: "13px",
         color: "#9fb5bd",

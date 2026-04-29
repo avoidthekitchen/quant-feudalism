@@ -15,7 +15,7 @@
         <h1>Quant Feudalism</h1>
         <p class="deck">
           Sterile corporate cyber-feudalism rendered as a combat procurement
-          ritual. Spend your windowed compute, bleed from your finite allotment,
+          ritual. Spend your Compute Rate Limit, burn finite Compute Credits,
           and buy your way back into motion.
         </p>
 
@@ -27,7 +27,7 @@
 
           <div class="metric">
             <div class="metric-label-row">
-              <span>Compute Window</span>
+              <span>Compute Rate Limit</span>
               <strong id="compute-label">0 / 0</strong>
             </div>
             <div class="meter meter-compute">
@@ -37,7 +37,7 @@
 
           <div class="metric">
             <div class="metric-label-row">
-              <span>Allotment Pool</span>
+              <span>Compute Credits</span>
               <strong id="allotment-label">0 / 0</strong>
             </div>
             <div class="meter meter-allotment">
@@ -47,7 +47,7 @@
 
           <div class="metric-grid">
             <div>
-              <span class="metric-kicker">Credits</span>
+              <span class="metric-kicker">Shop Credits</span>
               <strong id="credits-label">0</strong>
             </div>
             <div>
@@ -61,6 +61,10 @@
             <div>
               <span class="metric-kicker">Kills</span>
               <strong id="kills-label">0</strong>
+            </div>
+            <div>
+              <span class="metric-kicker">Rounds Finished</span>
+              <strong id="rounds-label">0</strong>
             </div>
           </div>
         </section>
@@ -103,25 +107,38 @@
           <span>Static Worker Prototype</span>
         </div>
         <p class="shop-copy">
-          Compute is sold in rationed tranches. Every attack spends from your
-          regenerating window and also burns down the purchased allotment
-          beneath it.
+          Compute Credits are sold in rationed tranches. Every ability spends
+          from the regenerating Compute Rate Limit and the purchased Compute
+          Credits beneath it.
         </p>
         <div class="bundle-grid">
           <button class="shop-button" data-amount="72" data-cost="18">
             <span>Minor Refill</span>
-            <strong>+72 Allotment</strong>
-            <em>18 credits</em>
+            <strong>+72 Compute Credits</strong>
+            <em>18 shop credits</em>
           </button>
           <button class="shop-button" data-amount="144" data-cost="34">
             <span>Corporate Slice</span>
-            <strong>+144 Allotment</strong>
-            <em>34 credits</em>
+            <strong>+144 Compute Credits</strong>
+            <em>34 shop credits</em>
           </button>
           <button class="shop-button" data-amount="240" data-cost="52">
             <span>Dynasty Reserve</span>
-            <strong>+240 Allotment</strong>
-            <em>52 credits</em>
+            <strong>+240 Compute Credits</strong>
+            <em>52 shop credits</em>
+          </button>
+        </div>
+
+        <div class="shop-actions">
+          <button id="heal-button" class="shop-button">
+            <span>Repair Integrity</span>
+            <strong id="heal-label">+25 Integrity</strong>
+            <em id="heal-cost-label">180 Compute Credits</em>
+          </button>
+          <button id="rate-limit-button" class="shop-button">
+            <span>Increase Rate Limit</span>
+            <strong id="rate-limit-label">+16 Compute Rate Limit</strong>
+            <em id="rate-limit-cost-label">42 shop credits</em>
           </button>
         </div>
 
