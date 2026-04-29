@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "npx vite",
     "build": "npx vite build",
+    "build:cloudflare": "rm -rf dist && npx vite build --mode cloudflare",
+    "build:itch": "rm -rf dist-itch && npx vite build --mode itch",
     "test": "node --test --experimental-strip-types src/game/*.test.ts",
     "preview": "npx vite preview",
-    "deploy": "npx vite build && npx wrangler deploy"
+    "deploy": "npm run deploy:cloudflare",
+    "deploy:cloudflare": "npm run build:cloudflare && npx wrangler deploy",
+    "publish:itch": "npm run build:itch && butler push dist-itch avoidthekitchen/quant-feudalism:html5"
   },
   "dependencies": {
     "phaser": "^4.0.0"

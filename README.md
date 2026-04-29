@@ -21,6 +21,30 @@ Run the automated state and rewind tests with:
 npm test
 ```
 
+## Publishing
+
+Cloudflare Workers Static Assets serves the game from
+`https://unformedideas.com/qf-arpg/`. The Cloudflare build writes the app under
+`dist/qf-arpg/` so the asset directory mirrors the deployed subpath.
+
+```sh
+npm run build:cloudflare
+npx wrangler deploy --dry-run
+npm run deploy:cloudflare
+```
+
+The itch.io build uses relative asset URLs and writes a browser-playable upload
+folder to `dist-itch/`.
+
+```sh
+npm run build:itch
+npm run publish:itch
+```
+
+The itch.io publish target is
+`avoidthekitchen/quant-feudalism:html5`. After the first butler push, set the
+itch.io project kind to HTML/browser-playable on the game's edit page.
+
 ## Core Loop
 
 Start in the shop, buy Compute Credits with shop credits, deploy into the arena, defeat drones, and extract at the northern gate. Clearing all drones pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving drones void the clear bonus.
