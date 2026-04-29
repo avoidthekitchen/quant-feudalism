@@ -201,6 +201,37 @@ h1 {
   color: var(--muted);
 }
 
+.quantum-tuner-meter {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 18px;
+  margin: 3px 0 7px;
+}
+
+.quantum-tuner-icon {
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+  border: 1px solid rgba(96, 255, 211, 0.24);
+  background:
+    linear-gradient(135deg, rgba(18, 31, 41, 0.96), rgba(6, 10, 16, 0.96));
+  box-shadow: inset 0 0 0 1px rgba(255, 207, 102, 0.06);
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  opacity: 0.38;
+}
+
+.quantum-tuner-icon.active {
+  opacity: 1;
+  border-color: rgba(255, 207, 102, 0.72);
+  background:
+    linear-gradient(135deg, rgba(255, 79, 164, 0.92), rgba(96, 255, 211, 0.88));
+  box-shadow:
+    0 0 16px rgba(255, 79, 164, 0.26),
+    0 0 22px rgba(96, 255, 211, 0.2);
+  transform: rotate(45deg) scale(1.06);
+}
+
 .status-note,
 .report-note {
   margin: 0;

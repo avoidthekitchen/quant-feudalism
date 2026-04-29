@@ -1,5 +1,5 @@
 import * as Phaser from "phaser";
-import { GAME_WIDTH, SCENES } from "../constants";
+import { SCENES } from "../constants";
 import {
   ACTOR_ART_SCALE,
   DRONE_SHEET_KEY,
@@ -11,12 +11,49 @@ import {
   spriteAnimationKey,
   spriteFrameName,
 } from "../generated-art";
+import {
+  extractHistoryRange,
+  getCollapseAvailability,
+  prepareCollapsedHistory,
+  QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS,
+  QUANTUM_TUNER_REWIND_MS,
+  recordArenaSnapshot,
+  type ArenaSnapshot,
+  type EnemyArenaSnapshot,
+  type PlayerArenaSnapshot,
+  type ProjectileArenaSnapshot,
+  type SnapshotCacheFlags,
+  type TimedArenaSnapshot,
+} from "../quantum-tuner";
 import { gameState } from "../state";
 
+type AbilityAction = "dash" | "melee" | "ranged";
+
+type AbilityAttempt = {
+  allowed: boolean;
+  baseCost: number;
+  cached: boolean;
+  cost: number;
+};
+
+type CacheWindowHint = {
+  ring: Phaser.GameObjects.Arc;
+  label: Phaser.GameObjects.Text;
+};
+
+type EnemySpawnPoint = {
+  id: number;
+  x: number;
+  y: number;
+  orbitSeed: number;
+};
+
 type EnemyUnit = {
+  id: number;
   sprite: Phaser.Physics.Arcade.Sprite;
   shadow: Phaser.GameObjects.Image;
   playerCollider: Phaser.Physics.Arcade.Collider;
+  wallCollider: Phaser.Physics.Arcade.Collider;
   lungeDirection: Phaser.Math.Vector2;
   lungeTelegraph?: Phaser.GameObjects.Rectangle;
   hp: number;
@@ -35,21 +72,22 @@ type Projectile = {
   ttl: number;
 };
 
-type AbilityAction = "dash" | "melee" | "ranged";
-
-type AbilityAttempt = {
-  allowed: boolean;
-  baseCost: number;
-  cached: boolean;
-  cost: number;
+type CollapsePlayback = {
+  timeline: TimedArenaSnapshot[];
+  target: TimedArenaSnapshot;
+  elapsedMs: number;
+  durationMs: number;
+  lastAppliedIndex: number;
 };
 
-type CacheWindowHint = {
-  ring: Phaser.GameObjects.Arc;
-  label: Phaser.GameObjects.Text;
+type GhostReplay = {
+  timeline: TimedArenaSnapshot[];
+  elapsedMs: number;
+  durationMs: number;
 };
 
 export class ArenaScene extends Phaser.Scene {
+  private static readonly collapseVisualDurationMs = 1_000;
   private static readonly combatSpeedMultiplier = 1.5;
   private static readonly playerBaseSpeed = 220;
   private static readonly playerBaseAcceleration = 510;
@@ -84,21 +122,20 @@ export class ArenaScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup;
   private drones: EnemyUnit[] = [];
   private projectiles: Projectile[] = [];
+  private enemySpawnPoints: EnemySpawnPoint[] = [];
   private cursors!: {
     W: Phaser.Input.Keyboard.Key;
     A: Phaser.Input.Keyboard.Key;
     S: Phaser.Input.Keyboard.Key;
     D: Phaser.Input.Keyboard.Key;
     F: Phaser.Input.Keyboard.Key;
+    Q: Phaser.Input.Keyboard.Key;
     SPACE: Phaser.Input.Keyboard.Key;
   };
   private blurFilter?: Phaser.Filters.Blur;
   private extractionRing?: Phaser.GameObjects.Arc;
   private arenaCleared = false;
   private enemyCountLabel?: Phaser.GameObjects.Text;
-  private lastMeleeAt = 0;
-  private lastRangedAt = 0;
-  private lastDashAt = -Infinity;
   private dashTimer = 0;
   private dashInvulnerabilityTimer = 0;
   private dashDirection = new Phaser.Math.Vector2(1, 0);
@@ -107,12 +144,29 @@ export class ArenaScene extends Phaser.Scene {
   private playerFacing: SpriteDirection = "s";
   private currentPlayerAnim = "";
   private velocity = new Phaser.Math.Vector2();
-  private cacheDiscountBlocked: Record<AbilityAction, boolean> = {
+  private cooldownRemainingMs: Record<AbilityAction, number> = {
+    dash: 0,
+    melee: 0,
+    ranged: 0,
+  };
+  private cacheDiscountBlocked: SnapshotCacheFlags = {
     dash: false,
     melee: false,
     ranged: false,
   };
   private cacheWindowHints: Partial<Record<AbilityAction, CacheWindowHint>> = {};
+  private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
+  private timelineTimeMs = 0;
+  private snapshotAccumulatorMs = 0;
+  private snapshotHistory: TimedArenaSnapshot[] = [];
+  private collapsePlayback?: CollapsePlayback;
+  private ghostReplay?: GhostReplay;
+  private quantumTrailGraphics?: Phaser.GameObjects.Graphics;
+  private quantumTargetMarker?: Phaser.GameObjects.Arc;
+  private collapseOverlay?: Phaser.GameObjects.Rectangle;
+  private ghostShadow?: Phaser.GameObjects.Image;
+  private ghostSprite?: Phaser.GameObjects.Sprite;
+  private currentGhostAnim = "";
 
   constructor() {
     super(SCENES.arena);
@@ -121,20 +175,32 @@ export class ArenaScene extends Phaser.Scene {
   create(): void {
     this.drones = [];
     this.projectiles = [];
+    this.enemySpawnPoints = [];
     this.velocity.set(0, 0);
     this.arenaCleared = false;
     this.dashTimer = 0;
     this.dashInvulnerabilityTimer = 0;
     this.rangedMovementPauseTimer = 0;
-    this.lastDashAt = -Infinity;
     this.playerAttackTimer = 0;
     this.playerFacing = "s";
     this.currentPlayerAnim = "";
+    this.cooldownRemainingMs = {
+      dash: 0,
+      melee: 0,
+      ranged: 0,
+    };
     this.cacheDiscountBlocked = {
       dash: false,
       melee: false,
       ranged: false,
     };
+    this.transientVisuals.clear();
+    this.timelineTimeMs = 0;
+    this.snapshotAccumulatorMs = 0;
+    this.snapshotHistory = [];
+    this.collapsePlayback = undefined;
+    this.ghostReplay = undefined;
+    this.currentGhostAnim = "";
     Object.values(this.cacheWindowHints).forEach((hint) => {
       hint.ring.destroy();
       hint.label.destroy();
@@ -154,6 +220,13 @@ export class ArenaScene extends Phaser.Scene {
     this.playerShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
     this.playerShadow.setAlpha(0.46);
     this.playerShadow.setScale(0.92, 0.76);
+
+    this.quantumTrailGraphics = this.add.graphics();
+    this.quantumTrailGraphics.setDepth(40);
+    this.quantumTargetMarker = this.add.circle(this.entryPoint.x, this.entryPoint.y, 12, 0xffcf66, 0.08);
+    this.quantumTargetMarker.setStrokeStyle(2, 0xffcf66, 0.48);
+    this.quantumTargetMarker.setDepth(42);
+    this.quantumTargetMarker.setVisible(false);
 
     this.player = this.physics.add.sprite(
       this.entryPoint.x,
@@ -184,11 +257,42 @@ export class ArenaScene extends Phaser.Scene {
       0xeaffff,
       2,
     );
+    this.collapseOverlay = this.add.rectangle(
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
+      0xff4fa4,
+      0,
+    );
+    this.collapseOverlay.setScrollFactor(0);
+    this.collapseOverlay.setDepth(9_998);
+    this.collapseOverlay.setBlendMode(Phaser.BlendModes.SCREEN);
+
+    this.ghostShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
+    this.ghostShadow.setScale(0.88, 0.64);
+    this.ghostShadow.setAlpha(0);
+    this.ghostShadow.setTint(0x60ffd3);
+    this.ghostShadow.setDepth(44);
+    this.ghostShadow.setVisible(false);
+
+    this.ghostSprite = this.add.sprite(
+      this.entryPoint.x,
+      this.entryPoint.y,
+      PLAYER_SHEET_KEY,
+      spriteFrameName("idle", "s", 0),
+    );
+    this.ghostSprite.setScale(1 / ACTOR_ART_SCALE);
+    this.ghostSprite.setAlpha(0);
+    this.ghostSprite.setTint(0x9cf9ff);
+    this.ghostSprite.setBlendMode(Phaser.BlendModes.SCREEN);
+    this.ghostSprite.setDepth(45);
+    this.ghostSprite.setVisible(false);
 
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", this.handlePointerDown, this);
 
-    this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,SPACE") as ArenaScene["cursors"];
+    this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,Q,SPACE") as ArenaScene["cursors"];
 
     this.enemyCountLabel = this.add.text(24, 24, "", {
       fontFamily: "Azeret Mono, monospace",
@@ -198,27 +302,51 @@ export class ArenaScene extends Phaser.Scene {
     this.enemyCountLabel.setScrollFactor(0);
     this.enemyCountLabel.setDepth(9999);
 
+    this.updateVisuals();
+    this.updateExtractionPrompt();
+    this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.off("pointerdown", this.handlePointerDown, this);
+      this.clearTransientVisuals();
+      this.destroyAllProjectiles();
+      this.destroyAllDrones();
     });
   }
 
   update(_time: number, delta: number): void {
+    if (this.collapsePlayback) {
+      this.updateCollapsePlayback(delta);
+      this.updateQuantumTrail();
+      return;
+    }
+
     const dt = delta / 1000;
+    this.timelineTimeMs += delta;
+    this.snapshotAccumulatorMs += delta;
+    this.advanceAbilityCooldowns(delta);
+    this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
+    this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
+    gameState.regenerate(delta);
+
     const pointer = this.input.activePointer;
     pointer.updateWorldPoint(this.cameras.main);
 
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.Q) && this.tryCollapse()) {
+      return;
+    }
+
     this.updatePlayerMovement(dt, pointer);
     this.updatePlayerOrientation(pointer);
-    this.updateDrones(dt);
+
+    if (this.updateDrones(dt)) {
+      return;
+    }
+
     this.updateProjectiles(dt);
     this.updateVisuals();
     this.updateExtractionPrompt();
-    this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
-    this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
     this.updateCacheWindowVisuals();
-
-    gameState.regenerate(delta);
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.F) && this.canExtract()) {
       const note = this.arenaCleared
@@ -226,6 +354,7 @@ export class ArenaScene extends Phaser.Scene {
         : "Emergency extraction granted. The corporations keep the unused fear.";
       gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note);
       this.scene.start(SCENES.shop);
+      return;
     }
 
     if (!this.arenaCleared && this.drones.length === 0) {
@@ -242,6 +371,10 @@ export class ArenaScene extends Phaser.Scene {
         repeat: 2,
       });
     }
+
+    this.recordSnapshotIfDue();
+    this.updateQuantumTrail();
+    this.updateGhostReplay(delta);
   }
 
   private drawArenaFloor(): void {
@@ -404,46 +537,18 @@ export class ArenaScene extends Phaser.Scene {
       [1480, 720],
       [620, 1060],
       [1240, 250],
-    ];
+    ] as const;
 
     const enemyCount = Math.min(positions.length, 5 + gameState.roundsFinished);
+    this.enemySpawnPoints = positions.slice(0, enemyCount).map(([x, y], index) => ({
+      id: index,
+      x,
+      y,
+      orbitSeed: index * 0.6,
+    }));
 
-    positions.slice(0, enemyCount).forEach(([x, y], index) => {
-      const shadow = this.add.image(x, y + 18, "qf-shadow");
-      shadow.setScale(0.58, 0.52);
-      shadow.setAlpha(0.42);
-      shadow.setDepth(y - 6);
-
-      const sprite = this.physics.add.sprite(x, y, DRONE_SHEET_KEY, spriteFrameName("idle", "s", 0));
-      sprite.setScale(1 / ACTOR_ART_SCALE);
-      sprite.setCircle(28);
-      sprite.setOffset(68, 88);
-      sprite.setDepth(y + 2);
-      sprite.setBounce(0.1);
-      sprite.setCollideWorldBounds(true);
-      this.physics.add.collider(sprite, this.walls);
-      const playerCollider = this.physics.add.collider(
-        sprite,
-        this.player,
-        undefined,
-        () => !this.isPlayerInvulnerable(),
-        this,
-      );
-
-      this.drones.push({
-        sprite,
-        shadow,
-        playerCollider,
-        lungeDirection: new Phaser.Math.Vector2(1, 0),
-        hp: 44,
-        touchCooldown: 0,
-        attackTimer: 0,
-        stunTimer: 0,
-        lungeCooldown: 0.55 + index * 0.08,
-        lungeWindupTimer: 0,
-        lungeTimer: 0,
-        orbitSeed: index * 0.6,
-      });
+    this.enemySpawnPoints.forEach((spawnPoint) => {
+      this.drones.push(this.createDrone(this.initialEnemySnapshot(spawnPoint)));
     });
   }
 
@@ -499,7 +604,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     if (this.dashTimer > 0) {
-      this.dashTimer -= dt;
+      this.dashTimer = Math.max(0, this.dashTimer - dt);
       const dashSpeed =
         ArenaScene.playerBaseDashSpeed *
         ArenaScene.combatSpeedMultiplier *
@@ -627,18 +732,11 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryDash(input: Phaser.Math.Vector2, pointer: Phaser.Input.Pointer): void {
-    const now = this.time.now;
     if (this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
       return;
     }
 
-    const attempt = this.resolveAbilityAttempt(
-      "dash",
-      now,
-      this.lastDashAt,
-      ArenaScene.dashCooldownMs,
-      gameState.dashCost,
-    );
+    const attempt = this.resolveAbilityAttempt("dash", gameState.dashCost);
     if (!attempt.allowed) {
       return;
     }
@@ -663,7 +761,6 @@ export class ArenaScene extends Phaser.Scene {
 
     direction.normalize();
 
-    this.lastDashAt = now;
     this.completeAbilityAttempt("dash", attempt);
     this.dashTimer = ArenaScene.playerDashDuration;
     this.dashInvulnerabilityTimer = ArenaScene.playerDashInvulnerabilityDuration;
@@ -675,12 +772,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createDashAfterimage(): void {
-    const afterimage = this.add.image(
+    const afterimage = this.trackTransientVisual(this.add.image(
       this.player.x,
       this.player.y,
       PLAYER_SHEET_KEY,
       spriteFrameName("dash", this.animationDirectionForFacing(this.playerFacing), 1),
-    );
+    ));
     afterimage.setScale(1 / ACTOR_ART_SCALE);
     afterimage.setFlipX(this.shouldMirrorFacing(this.playerFacing));
     afterimage.setAngle(this.player.angle);
@@ -698,21 +795,12 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
-  private resolveAbilityAttempt(
-    action: AbilityAction,
-    now: number,
-    lastUsedAt: number,
-    cooldownMs: number,
-    baseCost: number,
-  ): AbilityAttempt {
-    const elapsed = now - lastUsedAt;
-    const isRepeat = Number.isFinite(lastUsedAt) && lastUsedAt > 0;
-    const cacheWindowStart = cooldownMs - ArenaScene.cacheDiscountWindowMs;
+  private resolveAbilityAttempt(action: AbilityAction, baseCost: number): AbilityAttempt {
+    const remainingMs = this.cooldownRemainingMs[action];
 
     if (
-      isRepeat &&
-      elapsed >= cacheWindowStart &&
-      elapsed < cooldownMs &&
+      remainingMs > 0 &&
+      remainingMs <= ArenaScene.cacheDiscountWindowMs &&
       !this.cacheDiscountBlocked[action] &&
       this.canUseCacheDiscount()
     ) {
@@ -724,8 +812,8 @@ export class ArenaScene extends Phaser.Scene {
       };
     }
 
-    if (elapsed < cooldownMs) {
-      if (isRepeat && !this.cacheDiscountBlocked[action]) {
+    if (remainingMs > 0) {
+      if (!this.cacheDiscountBlocked[action]) {
         this.cacheDiscountBlocked[action] = true;
         this.createCacheInvalidatedVisual(action);
         this.destroyCacheWindowHint(action);
@@ -748,6 +836,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private completeAbilityAttempt(action: AbilityAction, attempt: AbilityAttempt): void {
+    this.cooldownRemainingMs[action] = this.cooldownForAction(action);
     this.cacheDiscountBlocked[action] = false;
 
     if (attempt.cached) {
@@ -763,17 +852,17 @@ export class ArenaScene extends Phaser.Scene {
 
     this.destroyCacheWindowHint(action);
 
-    const ring = this.add.circle(this.player.x, this.player.y - 4, 22, 0x60ffd3, 0.18);
+    const ring = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 4, 22, 0x60ffd3, 0.18));
     ring.setStrokeStyle(3, 0xffcf66, 0.8);
     ring.setDepth(this.player.y + 42);
 
-    const label = this.add.text(this.player.x, this.player.y - 54, `${this.abilityLabel(action)} CACHE`, {
+    const label = this.trackTransientVisual(this.add.text(this.player.x, this.player.y - 54, `${this.abilityLabel(action)} CACHE`, {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "11px",
       color: "#fff7c2",
       backgroundColor: "rgba(13, 20, 25, 0.72)",
       padding: { left: 6, right: 6, top: 3, bottom: 3 },
-    });
+    }));
     label.setOrigin(0.5);
     label.setDepth(this.player.y + 43);
 
@@ -796,20 +885,20 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createCacheInvalidatedVisual(action: AbilityAction): void {
-    const crossA = this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86);
-    const crossB = this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86);
+    const crossA = this.trackTransientVisual(this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86));
+    const crossB = this.trackTransientVisual(this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86));
     crossA.setAngle(45);
     crossB.setAngle(-45);
     crossA.setDepth(this.player.y + 44);
     crossB.setDepth(this.player.y + 44);
 
-    const label = this.add.text(this.player.x, this.player.y - 72, `${this.abilityLabel(action)} CACHE MISSED`, {
+    const label = this.trackTransientVisual(this.add.text(this.player.x, this.player.y - 72, `${this.abilityLabel(action)} CACHE MISSED`, {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "10px",
       color: "#ffd7e8",
       backgroundColor: "rgba(35, 7, 22, 0.72)",
       padding: { left: 6, right: 6, top: 3, bottom: 3 },
-    });
+    }));
     label.setOrigin(0.5);
     label.setDepth(this.player.y + 45);
 
@@ -843,14 +932,8 @@ export class ArenaScene extends Phaser.Scene {
       return false;
     }
 
-    const lastUsedAt = this.lastUsedAtForAction(action);
-    if (lastUsedAt <= 0 || !Number.isFinite(lastUsedAt)) {
-      return false;
-    }
-
-    const elapsed = this.time.now - lastUsedAt;
-    const cooldownMs = this.cooldownForAction(action);
-    return elapsed >= cooldownMs - ArenaScene.cacheDiscountWindowMs && elapsed < cooldownMs;
+    const remainingMs = this.cooldownRemainingMs[action];
+    return remainingMs > 0 && remainingMs <= ArenaScene.cacheDiscountWindowMs;
   }
 
   private canUseCacheDiscount(): boolean {
@@ -913,12 +996,6 @@ export class ArenaScene extends Phaser.Scene {
     delete this.cacheWindowHints[action];
   }
 
-  private lastUsedAtForAction(action: AbilityAction): number {
-    if (action === "dash") return this.lastDashAt;
-    if (action === "melee") return this.lastMeleeAt;
-    return this.lastRangedAt;
-  }
-
   private cooldownForAction(action: AbilityAction): number {
     if (action === "dash") return ArenaScene.dashCooldownMs;
     if (action === "melee") return ArenaScene.meleeCooldownMs;
@@ -949,14 +1026,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryMelee(targetX: number, targetY: number): void {
-    const now = this.time.now;
-    const attempt = this.resolveAbilityAttempt(
-      "melee",
-      now,
-      this.lastMeleeAt,
-      ArenaScene.meleeCooldownMs,
-      gameState.meleeCost,
-    );
+    const attempt = this.resolveAbilityAttempt("melee", gameState.meleeCost);
     if (!attempt.allowed) {
       return;
     }
@@ -971,10 +1041,8 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    this.lastMeleeAt = now;
     this.completeAbilityAttempt("melee", attempt);
     const aimVector = new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y);
-    const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, targetX, targetY);
     this.playerFacing = this.directionFromVector(
       aimVector,
       this.playerFacing,
@@ -982,11 +1050,11 @@ export class ArenaScene extends Phaser.Scene {
     const swingAngle = this.angleForDirection(this.playerFacing);
     this.playerAttackTimer = 0.14;
     this.playPlayerAnimation("attack", this.playerFacing);
-    const slash = this.add.image(
+    const slash = this.trackTransientVisual(this.add.image(
       this.player.x + Math.cos(swingAngle) * 54,
       this.player.y + Math.sin(swingAngle) * 36,
       "qf-slash",
-    );
+    ));
     slash.setRotation(swingAngle);
     slash.setDepth(this.player.y + 30);
     slash.setAlpha(0.72);
@@ -1036,18 +1104,11 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryRanged(targetX: number, targetY: number): void {
-    const now = this.time.now;
     if (this.dashTimer > 0 || this.rangedMovementPauseTimer > 0) {
       return;
     }
 
-    const attempt = this.resolveAbilityAttempt(
-      "ranged",
-      now,
-      this.lastRangedAt,
-      ArenaScene.rangedCooldownMs,
-      gameState.rangedCost,
-    );
+    const attempt = this.resolveAbilityAttempt("ranged", gameState.rangedCost);
     if (!attempt.allowed) {
       return;
     }
@@ -1062,7 +1123,6 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    this.lastRangedAt = now;
     this.completeAbilityAttempt("ranged", attempt);
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
     this.velocity.set(0, 0);
@@ -1125,17 +1185,14 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     if (drone.hp <= 0) {
-      drone.playerCollider.destroy();
-      this.clearDroneLungeTelegraph(drone);
-      drone.shadow.destroy();
-      drone.sprite.destroy();
+      this.destroyDroneRuntime(drone);
       this.drones = this.drones.filter((candidate) => candidate !== drone);
       gameState.registerKill();
     }
   }
 
-  private updateDrones(dt: number): void {
-    this.drones.forEach((drone) => {
+  private updateDrones(dt: number): boolean {
+    for (const drone of this.drones) {
       drone.playerCollider.active = !this.isPlayerInvulnerable();
 
       const toPlayer = new Phaser.Math.Vector2(this.player.x - drone.sprite.x, this.player.y - drone.sprite.y);
@@ -1144,7 +1201,7 @@ export class ArenaScene extends Phaser.Scene {
         ? toPlayer.clone().scale(1 / distance)
         : drone.lungeDirection.clone();
       const orbit = new Phaser.Math.Vector2(-direction.y, direction.x).scale(
-        Math.sin(this.time.now * 0.0018 + drone.orbitSeed) * 46,
+        Math.sin(this.timelineTimeMs * 0.0018 + drone.orbitSeed) * 46,
       );
       const body = drone.sprite.body as Phaser.Physics.Arcade.Body;
 
@@ -1214,7 +1271,7 @@ export class ArenaScene extends Phaser.Scene {
       }
 
       if (drone.touchCooldown > 0) {
-        drone.touchCooldown -= dt;
+        drone.touchCooldown = Math.max(0, drone.touchCooldown - dt);
       }
       drone.attackTimer = Math.max(0, drone.attackTimer - dt);
 
@@ -1235,17 +1292,20 @@ export class ArenaScene extends Phaser.Scene {
             "Integrity collapse. The corporations reclaimed your body from the arena floor.",
           );
           this.scene.start(SCENES.shop);
+          return true;
         }
       }
 
       drone.shadow.setPosition(drone.sprite.x, drone.sprite.y + 16);
       drone.shadow.setDepth(drone.sprite.y - 12);
       drone.sprite.setDepth(drone.sprite.y + 5);
-      drone.sprite.setAngle(Math.sin(this.time.now * 0.004 + drone.orbitSeed) * 5);
+      drone.sprite.setAngle(Math.sin(this.timelineTimeMs * 0.004 + drone.orbitSeed) * 5);
       const droneDirection = this.directionFromVector(body.velocity, "s");
       const droneAction: SpriteAction = drone.attackTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
       drone.sprite.play(spriteAnimationKey("drone", droneAction, droneDirection), true);
-    });
+    }
+
+    return false;
   }
 
   private createDroneLungeTelegraph(drone: EnemyUnit): void {
@@ -1396,7 +1456,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     gameState.setArenaPrompt(
-      "Space dash, left click melee, right click ranged. Abilities spend Compute.",
+      "Space dash, left click melee, right click ranged, Q collapse.",
     );
   }
 
@@ -1408,5 +1468,610 @@ export class ArenaScene extends Phaser.Scene {
       this.extractionPoint.y,
     );
     return gateDistance < 92;
+  }
+
+  private advanceAbilityCooldowns(deltaMs: number): void {
+    (Object.keys(this.cooldownRemainingMs) as AbilityAction[]).forEach((action) => {
+      this.cooldownRemainingMs[action] = Math.max(0, this.cooldownRemainingMs[action] - deltaMs);
+    });
+  }
+
+  private tryCollapse(): boolean {
+    const availability = getCollapseAvailability(
+      this.snapshotHistory,
+      this.timelineTimeMs,
+      gameState.quantumTuners,
+    );
+
+    if (!availability.allowed || !availability.target) {
+      if (availability.reason === "no-charge") {
+        gameState.setNotice("Collapse denied. No Quantum Tuner charges are banked.");
+      } else {
+        gameState.setNotice("Collapse denied. Five seconds of temporal history are not available yet.");
+      }
+      return false;
+    }
+
+    if (!gameState.consumeQuantumTuner()) {
+      gameState.setNotice("Collapse denied. No Quantum Tuner charges are banked.");
+      return false;
+    }
+
+    const target = availability.target;
+    const discardedTimeline = extractHistoryRange(
+      this.snapshotHistory,
+      target.timelineTimeMs,
+      this.timelineTimeMs,
+    );
+    this.beginCollapsePlayback(target, discardedTimeline);
+    return true;
+  }
+
+  private beginCollapsePlayback(
+    target: TimedArenaSnapshot,
+    discardedTimeline: TimedArenaSnapshot[],
+  ): void {
+    this.collapsePlayback = {
+      timeline: discardedTimeline.length > 0 ? discardedTimeline : [target],
+      target,
+      elapsedMs: 0,
+      durationMs: ArenaScene.collapseVisualDurationMs,
+      lastAppliedIndex: -1,
+    };
+    this.ghostReplay = undefined;
+    this.hideGhostReplay();
+    this.clearTransientVisuals();
+    this.cameras.main.shake(140, 0.0022);
+    gameState.setNotice("Quantum Tuner engaged. Collapsing the discarded branch.");
+  }
+
+  private updateCollapsePlayback(deltaMs: number): void {
+    if (!this.collapsePlayback) {
+      return;
+    }
+
+    const playback = this.collapsePlayback;
+    playback.elapsedMs = Math.min(playback.durationMs, playback.elapsedMs + deltaMs);
+    const progress = playback.durationMs <= 0 ? 1 : playback.elapsedMs / playback.durationMs;
+    const reversedProgress = 1 - progress;
+    const desiredIndex = Math.max(
+      0,
+      Math.floor(reversedProgress * (playback.timeline.length - 1)),
+    );
+
+    if (desiredIndex !== playback.lastAppliedIndex) {
+      playback.lastAppliedIndex = desiredIndex;
+      this.restoreArenaSnapshot(playback.timeline[desiredIndex].snapshot, {
+        emitRunState: false,
+        bumpHudTimeline: false,
+      });
+    }
+
+    this.applyCollapseVisualState(progress);
+
+    if (progress >= 1) {
+      this.finishCollapsePlayback(playback);
+    }
+  }
+
+  private finishCollapsePlayback(playback: CollapsePlayback): void {
+    this.timelineTimeMs = playback.target.timelineTimeMs;
+    this.snapshotAccumulatorMs = 0;
+    this.restoreArenaSnapshot(playback.target.snapshot);
+    this.snapshotHistory = recordArenaSnapshot(
+      prepareCollapsedHistory(this.snapshotHistory, playback.target),
+      playback.target.snapshot,
+      playback.target.timelineTimeMs,
+    );
+    this.collapsePlayback = undefined;
+    this.applyCollapseVisualState(0);
+    this.startGhostReplay(playback.timeline);
+  }
+
+  private startGhostReplay(timeline: TimedArenaSnapshot[]): void {
+    if (timeline.length < 2) {
+      this.hideGhostReplay();
+      this.ghostReplay = undefined;
+      return;
+    }
+
+    this.ghostReplay = {
+      timeline,
+      elapsedMs: 0,
+      durationMs: Math.max(
+        1,
+        timeline[timeline.length - 1].timelineTimeMs - timeline[0].timelineTimeMs,
+      ),
+    };
+    this.applyGhostSample(timeline[0].snapshot.player);
+  }
+
+  private updateGhostReplay(deltaMs: number): void {
+    if (!this.ghostReplay) {
+      return;
+    }
+
+    this.ghostReplay.elapsedMs += deltaMs;
+    if (this.ghostReplay.elapsedMs >= this.ghostReplay.durationMs) {
+      this.hideGhostReplay();
+      this.ghostReplay = undefined;
+      return;
+    }
+
+    const sample = this.samplePlayerTimeline(this.ghostReplay.timeline, this.ghostReplay.elapsedMs);
+    this.applyGhostSample(sample);
+  }
+
+  private samplePlayerTimeline(
+    timeline: TimedArenaSnapshot[],
+    elapsedMs: number,
+  ): PlayerArenaSnapshot {
+    const firstTime = timeline[0].timelineTimeMs;
+    const targetTime = firstTime + elapsedMs;
+
+    for (let index = 1; index < timeline.length; index += 1) {
+      const next = timeline[index];
+      if (targetTime <= next.timelineTimeMs) {
+        const previous = timeline[index - 1];
+        const span = Math.max(1, next.timelineTimeMs - previous.timelineTimeMs);
+        const t = Phaser.Math.Clamp((targetTime - previous.timelineTimeMs) / span, 0, 1);
+        const previousPlayer = previous.snapshot.player;
+        const nextPlayer = next.snapshot.player;
+        const chosenPose = t < 0.5 ? previousPlayer : nextPlayer;
+
+        return {
+          position: {
+            x: Phaser.Math.Linear(previousPlayer.position.x, nextPlayer.position.x, t),
+            y: Phaser.Math.Linear(previousPlayer.position.y, nextPlayer.position.y, t),
+          },
+          velocity: {
+            x: Phaser.Math.Linear(previousPlayer.velocity.x, nextPlayer.velocity.x, t),
+            y: Phaser.Math.Linear(previousPlayer.velocity.y, nextPlayer.velocity.y, t),
+          },
+          dashDirection: {
+            x: Phaser.Math.Linear(previousPlayer.dashDirection.x, nextPlayer.dashDirection.x, t),
+            y: Phaser.Math.Linear(previousPlayer.dashDirection.y, nextPlayer.dashDirection.y, t),
+          },
+          angle: Phaser.Math.Linear(previousPlayer.angle, nextPlayer.angle, t),
+          facing: chosenPose.facing,
+          dashTimer: Phaser.Math.Linear(previousPlayer.dashTimer, nextPlayer.dashTimer, t),
+          dashInvulnerabilityTimer: Phaser.Math.Linear(
+            previousPlayer.dashInvulnerabilityTimer,
+            nextPlayer.dashInvulnerabilityTimer,
+            t,
+          ),
+          rangedMovementPauseTimer: Phaser.Math.Linear(
+            previousPlayer.rangedMovementPauseTimer,
+            nextPlayer.rangedMovementPauseTimer,
+            t,
+          ),
+          playerAttackTimer: Phaser.Math.Linear(
+            previousPlayer.playerAttackTimer,
+            nextPlayer.playerAttackTimer,
+            t,
+          ),
+          cooldowns: chosenPose.cooldowns,
+          cacheDiscountBlocked: chosenPose.cacheDiscountBlocked,
+        };
+      }
+    }
+
+    return timeline[timeline.length - 1].snapshot.player;
+  }
+
+  private applyGhostSample(playerSnapshot: PlayerArenaSnapshot): void {
+    if (!this.ghostSprite || !this.ghostShadow) {
+      return;
+    }
+
+    const speed = Math.hypot(playerSnapshot.velocity.x, playerSnapshot.velocity.y);
+    const action: SpriteAction =
+      playerSnapshot.dashTimer > 0
+        ? "dash"
+        : playerSnapshot.playerAttackTimer > 0
+          ? "attack"
+          : speed > 16
+            ? "run"
+            : "idle";
+
+    this.ghostShadow.setVisible(true);
+    this.ghostShadow.setAlpha(0.17);
+    this.ghostShadow.setPosition(playerSnapshot.position.x, playerSnapshot.position.y + 18);
+    this.ghostShadow.setDepth(playerSnapshot.position.y - 14);
+    this.ghostShadow.setScale(action === "dash" ? 1.04 : 0.9 + Math.min(speed / 900, 0.08), action === "dash" ? 0.58 : 0.68);
+
+    this.ghostSprite.setVisible(true);
+    this.ghostSprite.setAlpha(0.34);
+    this.ghostSprite.setPosition(playerSnapshot.position.x, playerSnapshot.position.y);
+    this.ghostSprite.setDepth(playerSnapshot.position.y + 4);
+    this.ghostSprite.setAngle(action === "dash" ? playerSnapshot.dashDirection.x * 7 : playerSnapshot.angle);
+    this.ghostSprite.setFlipX(this.shouldMirrorFacing(playerSnapshot.facing));
+
+    const animationDirection = this.animationDirectionForFacing(playerSnapshot.facing);
+    const animationKey = spriteAnimationKey("player", action, animationDirection);
+    if (this.currentGhostAnim !== animationKey) {
+      this.currentGhostAnim = animationKey;
+      this.ghostSprite.play(animationKey, true);
+    }
+  }
+
+  private hideGhostReplay(): void {
+    this.currentGhostAnim = "";
+    this.ghostSprite?.setVisible(false);
+    this.ghostSprite?.setAlpha(0);
+    this.ghostShadow?.setVisible(false);
+    this.ghostShadow?.setAlpha(0);
+  }
+
+  private applyCollapseVisualState(progress: number): void {
+    const pulse = Math.sin(progress * Math.PI);
+    const overlayAlpha = 0.08 + pulse * 0.2;
+    this.collapseOverlay?.setAlpha(progress <= 0 ? 0 : overlayAlpha);
+    this.cameras.main.setZoom(1 + pulse * 0.045);
+
+    if (this.blurFilter) {
+      const baseStrength = gameState.getVisionBlurStrength() * 0.95;
+      this.blurFilter.strength = baseStrength + pulse * 0.9;
+      this.blurFilter.x = 0.8 + gameState.getVisionBlurStrength() * 2.4 + pulse * 1.4;
+      this.blurFilter.y = 0.8 + gameState.getVisionBlurStrength() * 2.4 + pulse * 1.4;
+      this.blurFilter.steps = pulse > 0.2 ? 4 : 2;
+    }
+  }
+
+  private updateQuantumTrail(): void {
+    if (!this.quantumTrailGraphics || !this.quantumTargetMarker) {
+      return;
+    }
+
+    if (this.collapsePlayback) {
+      this.quantumTrailGraphics.clear();
+      this.quantumTargetMarker.setVisible(false);
+      return;
+    }
+
+    const recentTimeline = this.getRecentPlayerTimeline();
+    this.quantumTrailGraphics.clear();
+
+    if (recentTimeline.length < 2) {
+      this.quantumTargetMarker.setVisible(false);
+      return;
+    }
+
+    const hasCharge = gameState.quantumTuners > 0;
+    this.quantumTrailGraphics.lineStyle(2, 0x60ffd3, hasCharge ? 0.18 : 0.08);
+    this.quantumTrailGraphics.beginPath();
+    this.quantumTrailGraphics.moveTo(
+      recentTimeline[0].snapshot.player.position.x,
+      recentTimeline[0].snapshot.player.position.y,
+    );
+    for (let index = 1; index < recentTimeline.length; index += 1) {
+      const point = recentTimeline[index].snapshot.player.position;
+      this.quantumTrailGraphics.lineTo(point.x, point.y);
+    }
+    this.quantumTrailGraphics.strokePath();
+
+    for (let index = 0; index < recentTimeline.length; index += 4) {
+      const point = recentTimeline[index].snapshot.player.position;
+      this.quantumTrailGraphics.fillStyle(0xffcf66, hasCharge ? 0.12 : 0.06);
+      this.quantumTrailGraphics.fillCircle(point.x, point.y, 2.1);
+    }
+
+    const target = recentTimeline[0].snapshot.player.position;
+    this.quantumTargetMarker.setVisible(true);
+    this.quantumTargetMarker.setPosition(target.x, target.y);
+    this.quantumTargetMarker.setAlpha(hasCharge ? 0.72 : 0.28);
+    this.quantumTargetMarker.setScale(hasCharge ? 1.08 : 0.84);
+    this.quantumTargetMarker.setDepth(target.y + 2);
+  }
+
+  private getRecentPlayerTimeline(): TimedArenaSnapshot[] {
+    const recentTimeline = extractHistoryRange(
+      this.snapshotHistory,
+      Math.max(0, this.timelineTimeMs - QUANTUM_TUNER_REWIND_MS),
+      this.timelineTimeMs,
+    );
+    const latestSnapshot = this.captureArenaSnapshot();
+    recentTimeline.push({
+      timelineTimeMs: this.timelineTimeMs,
+      snapshot: latestSnapshot,
+    });
+    return recentTimeline;
+  }
+
+  private recordSnapshotIfDue(): void {
+    if (this.snapshotAccumulatorMs < QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS) {
+      return;
+    }
+
+    this.snapshotAccumulatorMs = 0;
+    this.snapshotHistory = recordArenaSnapshot(
+      this.snapshotHistory,
+      this.captureArenaSnapshot(),
+      this.timelineTimeMs,
+    );
+  }
+
+  private captureArenaSnapshot(): ArenaSnapshot {
+    const liveEnemyById = new Map(this.drones.map((drone) => [drone.id, drone]));
+
+    return {
+      runState: gameState.createArenaSnapshot(),
+      player: {
+        position: { x: this.player.x, y: this.player.y },
+        velocity: { x: this.velocity.x, y: this.velocity.y },
+        dashDirection: { x: this.dashDirection.x, y: this.dashDirection.y },
+        facing: this.playerFacing,
+        angle: this.player.angle,
+        dashTimer: this.dashTimer,
+        dashInvulnerabilityTimer: this.dashInvulnerabilityTimer,
+        rangedMovementPauseTimer: this.rangedMovementPauseTimer,
+        playerAttackTimer: this.playerAttackTimer,
+        cooldowns: {
+          dash: this.cooldownRemainingMs.dash,
+          melee: this.cooldownRemainingMs.melee,
+          ranged: this.cooldownRemainingMs.ranged,
+        },
+        cacheDiscountBlocked: {
+          dash: this.cacheDiscountBlocked.dash,
+          melee: this.cacheDiscountBlocked.melee,
+          ranged: this.cacheDiscountBlocked.ranged,
+        },
+      },
+      arenaCleared: this.arenaCleared,
+      projectiles: this.projectiles.map((projectile): ProjectileArenaSnapshot => ({
+        position: { x: projectile.sprite.x, y: projectile.sprite.y },
+        velocity: { x: projectile.velocity.x, y: projectile.velocity.y },
+        ttl: projectile.ttl,
+        rotation: projectile.sprite.rotation,
+      })),
+      enemies: this.enemySpawnPoints.map((spawnPoint) => {
+        const liveDrone = liveEnemyById.get(spawnPoint.id);
+        if (!liveDrone) {
+          return {
+            id: spawnPoint.id,
+            alive: false,
+            hp: 0,
+            position: { x: spawnPoint.x, y: spawnPoint.y },
+            velocity: { x: 0, y: 0 },
+            lungeDirection: { x: 1, y: 0 },
+            touchCooldown: 0,
+            attackTimer: 0,
+            stunTimer: 0,
+            lungeCooldown: 0,
+            lungeWindupTimer: 0,
+            lungeTimer: 0,
+            orbitSeed: spawnPoint.orbitSeed,
+          };
+        }
+
+        return {
+          id: liveDrone.id,
+          alive: true,
+          hp: liveDrone.hp,
+          position: { x: liveDrone.sprite.x, y: liveDrone.sprite.y },
+          velocity: {
+            x: (liveDrone.sprite.body as Phaser.Physics.Arcade.Body).velocity.x,
+            y: (liveDrone.sprite.body as Phaser.Physics.Arcade.Body).velocity.y,
+          },
+          lungeDirection: { x: liveDrone.lungeDirection.x, y: liveDrone.lungeDirection.y },
+          touchCooldown: liveDrone.touchCooldown,
+          attackTimer: liveDrone.attackTimer,
+          stunTimer: liveDrone.stunTimer,
+          lungeCooldown: liveDrone.lungeCooldown,
+          lungeWindupTimer: liveDrone.lungeWindupTimer,
+          lungeTimer: liveDrone.lungeTimer,
+          orbitSeed: liveDrone.orbitSeed,
+        };
+      }),
+    };
+  }
+
+  private restoreArenaSnapshot(
+    snapshot: ArenaSnapshot,
+    options: {
+      emitRunState?: boolean;
+      bumpHudTimeline?: boolean;
+    } = {},
+  ): void {
+    const { emitRunState = true, bumpHudTimeline = emitRunState } = options;
+    this.clearTransientVisuals();
+    (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
+      this.destroyCacheWindowHint(action);
+    });
+    this.destroyAllProjectiles();
+    this.destroyAllDrones();
+
+    this.arenaCleared = snapshot.arenaCleared;
+    this.velocity.set(snapshot.player.velocity.x, snapshot.player.velocity.y);
+    this.dashDirection.set(snapshot.player.dashDirection.x, snapshot.player.dashDirection.y);
+    this.playerFacing = snapshot.player.facing;
+    this.dashTimer = snapshot.player.dashTimer;
+    this.dashInvulnerabilityTimer = snapshot.player.dashInvulnerabilityTimer;
+    this.rangedMovementPauseTimer = snapshot.player.rangedMovementPauseTimer;
+    this.playerAttackTimer = snapshot.player.playerAttackTimer;
+    this.cooldownRemainingMs = {
+      dash: snapshot.player.cooldowns.dash,
+      melee: snapshot.player.cooldowns.melee,
+      ranged: snapshot.player.cooldowns.ranged,
+    };
+    this.cacheDiscountBlocked = {
+      dash: snapshot.player.cacheDiscountBlocked.dash,
+      melee: snapshot.player.cacheDiscountBlocked.melee,
+      ranged: snapshot.player.cacheDiscountBlocked.ranged,
+    };
+
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    playerBody.reset(snapshot.player.position.x, snapshot.player.position.y);
+    this.player.setPosition(snapshot.player.position.x, snapshot.player.position.y);
+    this.player.setVelocity(this.velocity.x, this.velocity.y);
+    this.player.setAngle(snapshot.player.angle);
+    this.currentPlayerAnim = "";
+    this.updatePlayerShadow();
+    this.syncPlayerPresentation();
+
+    gameState.restoreArenaSnapshot(snapshot.runState, {
+      emitChange: emitRunState,
+      bumpTimelineVersion: bumpHudTimeline,
+    });
+
+    this.projectiles = snapshot.projectiles.map((projectileSnapshot) =>
+      this.createProjectileFromSnapshot(projectileSnapshot),
+    );
+    this.drones = snapshot.enemies
+      .filter((enemySnapshot) => enemySnapshot.alive)
+      .map((enemySnapshot) => this.createDrone(enemySnapshot));
+
+    this.updateVisuals();
+    this.updateExtractionPrompt();
+    this.updateCacheWindowVisuals();
+  }
+
+  private syncPlayerPresentation(): void {
+    const action: SpriteAction =
+      this.dashTimer > 0
+        ? "dash"
+        : this.playerAttackTimer > 0
+          ? "attack"
+          : this.velocity.lengthSq() > 256
+            ? "run"
+            : "idle";
+
+    this.playPlayerAnimation(action, this.playerFacing);
+    if (action === "dash") {
+      this.playerShadow.setScale(1.14, 0.64);
+      this.player.setAngle(this.dashDirection.x * 7);
+      return;
+    }
+
+    const speed = this.velocity.length();
+    this.playerShadow.setScale(0.92 + Math.min(speed / 900, 0.12), 0.76);
+  }
+
+  private createProjectileFromSnapshot(projectileSnapshot: ProjectileArenaSnapshot): Projectile {
+    const sprite = this.physics.add.image(
+      projectileSnapshot.position.x,
+      projectileSnapshot.position.y,
+      "qf-bolt",
+    );
+    sprite.setRotation(projectileSnapshot.rotation);
+    sprite.setDepth(projectileSnapshot.position.y + 20);
+    sprite.setVelocity(projectileSnapshot.velocity.x, projectileSnapshot.velocity.y);
+
+    return {
+      sprite,
+      velocity: new Phaser.Math.Vector2(
+        projectileSnapshot.velocity.x,
+        projectileSnapshot.velocity.y,
+      ),
+      ttl: projectileSnapshot.ttl,
+    };
+  }
+
+  private createDrone(snapshot: EnemyArenaSnapshot): EnemyUnit {
+    const shadow = this.add.image(snapshot.position.x, snapshot.position.y + 18, "qf-shadow");
+    shadow.setScale(0.58, 0.52);
+    shadow.setAlpha(0.42);
+    shadow.setDepth(snapshot.position.y - 6);
+
+    const sprite = this.physics.add.sprite(
+      snapshot.position.x,
+      snapshot.position.y,
+      DRONE_SHEET_KEY,
+      spriteFrameName("idle", "s", 0),
+    );
+    sprite.setScale(1 / ACTOR_ART_SCALE);
+    sprite.setCircle(28);
+    sprite.setOffset(68, 88);
+    sprite.setDepth(snapshot.position.y + 2);
+    sprite.setBounce(0.1);
+    sprite.setCollideWorldBounds(true);
+    sprite.setVelocity(snapshot.velocity.x, snapshot.velocity.y);
+    const wallCollider = this.physics.add.collider(sprite, this.walls);
+    const playerCollider = this.physics.add.collider(
+      sprite,
+      this.player,
+      undefined,
+      () => !this.isPlayerInvulnerable(),
+      this,
+    );
+
+    const drone: EnemyUnit = {
+      id: snapshot.id,
+      sprite,
+      shadow,
+      playerCollider,
+      wallCollider,
+      lungeDirection: new Phaser.Math.Vector2(
+        snapshot.lungeDirection.x,
+        snapshot.lungeDirection.y,
+      ),
+      hp: snapshot.hp,
+      touchCooldown: snapshot.touchCooldown,
+      attackTimer: snapshot.attackTimer,
+      stunTimer: snapshot.stunTimer,
+      lungeCooldown: snapshot.lungeCooldown,
+      lungeWindupTimer: snapshot.lungeWindupTimer,
+      lungeTimer: snapshot.lungeTimer,
+      orbitSeed: snapshot.orbitSeed,
+    };
+
+    if (snapshot.lungeWindupTimer > 0) {
+      this.createDroneLungeTelegraph(drone);
+    }
+
+    return drone;
+  }
+
+  private initialEnemySnapshot(spawnPoint: EnemySpawnPoint): EnemyArenaSnapshot {
+    return {
+      id: spawnPoint.id,
+      alive: true,
+      hp: 44,
+      position: { x: spawnPoint.x, y: spawnPoint.y },
+      velocity: { x: 0, y: 0 },
+      lungeDirection: { x: 1, y: 0 },
+      touchCooldown: 0,
+      attackTimer: 0,
+      stunTimer: 0,
+      lungeCooldown: 0.55 + spawnPoint.id * 0.08,
+      lungeWindupTimer: 0,
+      lungeTimer: 0,
+      orbitSeed: spawnPoint.orbitSeed,
+    };
+  }
+
+  private destroyAllProjectiles(): void {
+    this.projectiles.forEach((projectile) => projectile.sprite.destroy());
+    this.projectiles = [];
+  }
+
+  private destroyAllDrones(): void {
+    this.drones.forEach((drone) => this.destroyDroneRuntime(drone));
+    this.drones = [];
+  }
+
+  private destroyDroneRuntime(drone: EnemyUnit): void {
+    drone.playerCollider.destroy();
+    drone.wallCollider.destroy();
+    this.clearDroneLungeTelegraph(drone);
+    drone.shadow.destroy();
+    drone.sprite.destroy();
+  }
+
+  private clearTransientVisuals(): void {
+    this.transientVisuals.forEach((visual) => {
+      if (visual.active) {
+        visual.destroy();
+      }
+    });
+    this.transientVisuals.clear();
+  }
+
+  private trackTransientVisual<T extends Phaser.GameObjects.GameObject>(visual: T): T {
+    this.transientVisuals.add(visual);
+    visual.once("destroy", () => {
+      this.transientVisuals.delete(visual);
+    });
+    return visual;
   }
 }
