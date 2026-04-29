@@ -133,7 +133,7 @@ h1 {
 
 .ledger-primary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 
@@ -180,6 +180,11 @@ h1 {
 .meter-allotment .meter-fill {
   background:
     linear-gradient(90deg, #381529, #ff4fa4 58%, #ffcf66 100%);
+}
+
+.meter-integrity .meter-fill {
+  background:
+    linear-gradient(90deg, #3a1620, #ff4f6d 54%, #ffcf66 100%);
 }
 
 .metric-grid {

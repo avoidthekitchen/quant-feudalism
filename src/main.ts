@@ -9,6 +9,7 @@ const appShell = document.querySelector<HTMLElement>("#app-shell");
 const sceneChip = document.querySelector<HTMLSpanElement>("#scene-chip");
 const computeFill = document.querySelector<HTMLDivElement>("#compute-fill");
 const allotmentFill = document.querySelector<HTMLDivElement>("#allotment-fill");
+const integrityFill = document.querySelector<HTMLDivElement>("#integrity-fill");
 const computeLabel = document.querySelector<HTMLElement>("#compute-label");
 const allotmentLabel = document.querySelector<HTMLElement>("#allotment-label");
 const creditsLabel = document.querySelector<HTMLElement>("#credits-label");
@@ -62,6 +63,7 @@ function renderHud(): void {
     !sceneChip ||
     !computeFill ||
     !allotmentFill ||
+    !integrityFill ||
     !computeLabel ||
     !allotmentLabel ||
     !arenaPromptLabel ||
@@ -73,6 +75,7 @@ function renderHud(): void {
 
   const computeRatio = Math.max(0, Math.min(1, gameState.computeCurrent / gameState.computeMax));
   const allotmentRatio = Math.max(0, Math.min(1, gameState.allotmentCurrent / gameState.allotmentMax));
+  const integrityRatio = Math.max(0, Math.min(1, gameState.integrityCurrent / gameState.integrityMax));
   const throttle = gameState.getThrottleSeverity();
   const inShop = gameState.sceneMode === "shop";
   const deployDisabled = !inShop || gameState.allotmentCurrent <= 0 || gameState.integrityCurrent <= 0;
@@ -86,6 +89,8 @@ function renderHud(): void {
   computeFill.style.filter = throttle > 0.55 ? "brightness(0.86) saturate(0.64)" : "";
   allotmentFill.style.width = `${allotmentRatio * 100}%`;
   allotmentFill.style.filter = gameState.allotmentCurrent <= 0 ? "grayscale(0.6)" : "";
+  integrityFill.style.width = `${integrityRatio * 100}%`;
+  integrityFill.style.filter = integrityRatio <= 0.3 ? "brightness(0.9) saturate(1.2)" : "";
 
   computeLabel.textContent = `${numberLabel(gameState.computeCurrent)} / ${gameState.computeMax}`;
   allotmentLabel.textContent = `${numberLabel(gameState.allotmentCurrent)} / ${gameState.allotmentMax}`;
