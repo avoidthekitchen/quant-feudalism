@@ -156,6 +156,25 @@ function strokePixelLine(
   ctx.stroke();
 }
 
+function polygon(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][],
+  color: string,
+): void {
+  if (points.length === 0) {
+    return;
+  }
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(Math.round(points[0][0]), Math.round(points[0][1]));
+  points.slice(1).forEach(([pointX, pointY]) => {
+    ctx.lineTo(Math.round(pointX), Math.round(pointY));
+  });
+  ctx.closePath();
+  ctx.fill();
+}
+
 function drawPlayerSheetFrame(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -180,24 +199,58 @@ function drawPlayerSheetFrame(
   const ground = y + 100;
   const torsoY = y + 44 + bob;
   const headY = y + 24 + bob + (back ? -2 : 0);
+  const hoodLean = lean + side;
+  const armorShade = back ? "#121a25" : "#0b111a";
+  const armorMid = back ? "#1b2633" : "#172432";
+  const cloth = back ? "#0a0f17" : "#070b12";
+  const plate = action === "dash" ? "#c93557" : "#a92746";
+  const neonRed = action === "attack" ? "#ff6b91" : "#ff3f72";
+  const neonTeal = action === "dash" ? "#9fffea" : "#60ffd3";
+  const visor = back ? neonTeal : "#ff4f8b";
 
   rect(ctx, x + 27, ground - 9, 42, 8, "rgba(2, 5, 9, 0.46)");
   if (action === "dash") {
-    rect(ctx, cx - side * (36 + frame * 8), y + 54 + frame * 3, 30, 5, "rgba(96, 255, 211, 0.42)");
-    rect(ctx, cx - side * (28 + frame * 7), y + 66, 22, 4, "rgba(255, 44, 84, 0.34)");
+    rect(ctx, cx - side * (38 + frame * 9), y + 50 + frame * 3, 32, 4, "rgba(96, 255, 211, 0.42)");
+    rect(ctx, cx - side * (31 + frame * 7), y + 64, 24, 4, "rgba(255, 63, 114, 0.35)");
+    rect(ctx, cx - side * (26 + frame * 6), y + 73, 18, 3, "rgba(255, 255, 255, 0.28)");
   }
 
-  rect(ctx, cx - 11 + legA, y + 72 + bob, 9, 20, "#071017");
-  rect(ctx, cx + 4 + legB, y + 70 + bob, 9, 22, "#0b1420");
-  rect(ctx, cx - 12 + legA, y + 91 + bob, 15, 6, "#ffcf66");
-  rect(ctx, cx + 2 + legB, y + 92 + bob, 15, 5, "#ffcf66");
+  strokePixelLine(ctx, cx + hoodLean + aimSide * 12, torsoY + 5, cx + hoodLean + aimSide * 31, y + 22, "#070b10", 5);
+  strokePixelLine(ctx, cx + hoodLean + aimSide * 14, torsoY + 7, cx + hoodLean + aimSide * 33, y + 24, "#c9fff0", 2);
+  rect(ctx, cx + hoodLean + aimSide * 24, y + 20, 5, 15, "#05070b");
 
-  rect(ctx, cx - 18 + lean, torsoY, 34, 31, "#090f19");
-  rect(ctx, cx - 22 + lean, torsoY + 4, front ? 36 : 30, 26, front ? "#d73442" : "#8f1f34");
-  rect(ctx, cx - 17 + lean, torsoY + 9, 24, 24, back ? "#101722" : "#1b5962");
-  rect(ctx, cx + 8 + lean, torsoY + 7, 6, 25, back ? "#1b5962" : "#60ffd3");
-  rect(ctx, cx - 24 + lean, torsoY + 15, 7, 16, front ? "#ffcf66" : "#ff2c54");
-  rect(ctx, cx - 20 + lean, torsoY + 34, 34, 4, "#ffcf66");
+  rect(ctx, cx - 13 + legA, y + 71 + bob, 9, 21, "#090f17");
+  rect(ctx, cx - 10 + legA, y + 75 + bob, 5, 12, "#1e2d38");
+  rect(ctx, cx + 5 + legB, y + 70 + bob, 9, 23, "#0d1420");
+  rect(ctx, cx + 7 + legB, y + 74 + bob, 5, 13, "#263746");
+  rect(ctx, cx - 14 + legA, y + 91 + bob, 16, 6, "#080c13");
+  rect(ctx, cx + 2 + legB, y + 92 + bob, 17, 5, "#080c13");
+  rect(ctx, cx - 11 + legA, y + 90 + bob, 7, 3, neonTeal);
+  rect(ctx, cx + 9 + legB, y + 91 + bob, 7, 3, neonTeal);
+
+  polygon(ctx, [
+    [cx - 20 + lean, torsoY + 2],
+    [cx - 7 + lean, torsoY - 3],
+    [cx + 17 + lean, torsoY + 3],
+    [cx + 14 + lean, torsoY + 35],
+    [cx - 17 + lean, torsoY + 37],
+  ], "#060a11");
+  rect(ctx, cx - 18 + lean, torsoY + 7, 33, 29, armorShade);
+  rect(ctx, cx - 13 + lean, torsoY + 10, 21, 22, armorMid);
+  rect(ctx, cx - 3 + lean, torsoY + 8, 5, 27, "#05080d");
+  rect(ctx, cx - 17 + lean, torsoY + 35, 33, 4, "#222d3a");
+  rect(ctx, cx - 20 + lean, torsoY + 12, 6, 19, "#0f1722");
+  rect(ctx, cx + 10 + lean, torsoY + 10, 5, 23, neonTeal);
+  rect(ctx, cx - 8 + lean, torsoY + 13, 5, 4, "#d7fff8");
+  rect(ctx, cx + 2 + lean, torsoY + 17, 4, 4, "#e9fff9");
+
+  if (front) {
+    rect(ctx, cx - 24 + lean, torsoY + 8, 10, 14, plate);
+    rect(ctx, cx + 12 + lean, torsoY + 8, 10, 13, "#7c1b35");
+  } else {
+    rect(ctx, cx - 22 + lean, torsoY + 10, 8, 16, "#68182d");
+    rect(ctx, cx + 12 + lean, torsoY + 9, 8, 15, "#3a1320");
+  }
 
   if (attackPulse >= 0) {
     const reach = 25 + attackPulse * 13;
@@ -207,7 +260,7 @@ function drawPlayerSheetFrame(
       torsoY + 18,
       cx + dir.x * reach + side * 14,
       torsoY + 18 + dir.y * reach * 0.55,
-      attackPulse === 1 ? "#ffffff" : "#60ffd3",
+      attackPulse === 1 ? "#ffffff" : neonTeal,
       attackPulse === 1 ? 5 : 3,
     );
     strokePixelLine(
@@ -216,37 +269,53 @@ function drawPlayerSheetFrame(
       torsoY + 22,
       cx + dir.x * (reach + 12),
       torsoY + 22 + dir.y * reach * 0.5,
-      "#ff2c54",
+      neonRed,
       2,
     );
   } else {
-    rect(ctx, cx - 29 + lean - aimSide * 2, torsoY + 18, 12, 7, "#071017");
-    rect(ctx, cx + 15 + lean + aimSide * 2, torsoY + 14, 16, 6, "#071017");
+    rect(ctx, cx - 30 + lean - aimSide * 2, torsoY + 18, 13, 7, "#070b12");
+    rect(ctx, cx - 31 + lean - aimSide * 2, torsoY + 15, 8, 9, plate);
+    rect(ctx, cx + 15 + lean + aimSide * 2, torsoY + 14, 17, 6, "#070b12");
+    rect(ctx, cx + 21 + lean + aimSide * 2, torsoY + 12, 7, 8, "#711a31");
     strokePixelLine(
       ctx,
       cx + lean + aimSide * 6,
       torsoY + 24,
       cx + lean + aimSide * 30,
       torsoY + 17 + dir.y * 8,
-      "#c9fff0",
+      "#111923",
       3,
     );
+    strokePixelLine(ctx, cx + lean + aimSide * 9, torsoY + 23, cx + lean + aimSide * 30, torsoY + 17 + dir.y * 8, neonRed, 1);
   }
 
-  rect(ctx, cx - 11 + lean, headY, 20, 17, back ? "#151b26" : "#f2e7d3");
-  rect(ctx, cx - 12 + lean, headY - 4, 20, 8, "#080b10");
-  rect(ctx, cx + 5 + lean + aimSide * 2, headY + 4, 5, 6, back ? "#60ffd3" : "#ffcf66");
-  rect(ctx, cx + lean + aimSide * 8, headY + 8, 9, 3, "#ffffff");
-  rect(ctx, cx - 14 + lean, headY + 15, 24, 5, "#c5283e");
+  polygon(ctx, [
+    [cx - 15 + hoodLean, headY + 3],
+    [cx - 9 + hoodLean, headY - 7],
+    [cx + 8 + hoodLean, headY - 6],
+    [cx + 15 + hoodLean, headY + 4],
+    [cx + 9 + hoodLean, headY + 20],
+    [cx - 10 + hoodLean, headY + 19],
+  ], "#060a10");
+  rect(ctx, cx - 10 + hoodLean, headY + 2, 19, 15, cloth);
+  rect(ctx, cx - 7 + hoodLean, headY + 5, 13, 8, "#101923");
+  rect(ctx, cx - 5 + hoodLean + aimSide * 2, headY + 7, 10, 3, visor);
+  rect(ctx, cx + hoodLean + aimSide * 7, headY + 9, 4, 3, "#eaffff");
+  rect(ctx, cx - 11 + hoodLean, headY + 16, 22, 5, "#111925");
+  rect(ctx, cx - 13 + hoodLean, headY + 2, 3, 14, "#263642");
 
   if (direction.includes("n")) {
-    rect(ctx, cx - 4 + lean, torsoY + 3, 8, 42, "#60ffd3");
-    rect(ctx, cx - 17 + lean, headY + 1, 34, 9, "#070a10");
+    rect(ctx, cx - 4 + lean, torsoY + 1, 8, 42, neonTeal);
+    rect(ctx, cx - 18 + hoodLean, headY + 1, 36, 9, "#05080d");
+    rect(ctx, cx - 12 + lean, torsoY + 10, 24, 18, "#111a25");
   }
 
   if (direction.includes("s")) {
-    rect(ctx, cx - 7 + lean, torsoY + 4, 14, 22, "#f7f3df");
-    rect(ctx, cx - 12 + lean, headY + 7, 24, 5, "#ffffff");
+    rect(ctx, cx - 7 + lean, torsoY + 6, 14, 20, "#0e1721");
+    rect(ctx, cx - 5 + lean, torsoY + 9, 4, 14, neonTeal);
+    rect(ctx, cx + 3 + lean, torsoY + 9, 4, 14, neonRed);
+    rect(ctx, cx - 12 + hoodLean, headY + 7, 24, 5, "#17222d");
+    rect(ctx, cx - 5 + hoodLean + aimSide * 2, headY + 8, 11, 2, visor);
   }
 }
 
@@ -392,26 +461,26 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   createActorSheet(scene, DRONE_SHEET_KEY, drawDroneSheetFrame);
 
   graphics.clear();
-  graphics.fillStyle(0x111820, 1);
+  graphics.fillStyle(0x344653, 1);
   graphics.fillTriangle(64, 6, 124, 36, 64, 66);
   graphics.fillTriangle(64, 6, 4, 36, 64, 66);
-  graphics.fillStyle(0x1a2b33, 1);
+  graphics.fillStyle(0x49606d, 1);
   graphics.fillTriangle(64, 10, 118, 36, 64, 61);
-  graphics.fillStyle(0x142229, 1);
+  graphics.fillStyle(0x3c515f, 1);
   graphics.fillTriangle(64, 10, 10, 36, 64, 61);
-  graphics.fillStyle(0x0b1118, 0.74);
+  graphics.fillStyle(0x22313c, 0.78);
   graphics.fillTriangle(4, 36, 64, 66, 64, 72);
   graphics.fillTriangle(124, 36, 64, 66, 64, 72);
-  graphics.lineStyle(2, 0x60ffd3, 0.48);
+  graphics.lineStyle(2, 0x9fffea, 0.34);
   graphics.lineBetween(64, 6, 124, 36);
   graphics.lineBetween(124, 36, 64, 66);
-  graphics.lineStyle(2, 0xff4fa4, 0.24);
+  graphics.lineStyle(2, 0xff4fa4, 0.2);
   graphics.lineBetween(64, 66, 4, 36);
   graphics.lineBetween(4, 36, 64, 6);
-  graphics.lineStyle(1, 0xc9fff0, 0.22);
+  graphics.lineStyle(1, 0xe6fff9, 0.18);
   graphics.lineBetween(64, 10, 64, 64);
   graphics.lineBetween(12, 36, 116, 36);
-  graphics.lineStyle(1, 0xffcf66, 0.42);
+  graphics.lineStyle(1, 0xffcf66, 0.28);
   graphics.lineBetween(47, 27, 64, 36);
   graphics.lineBetween(64, 36, 82, 27);
   graphics.generateTexture("qf-floor", 128, 74);

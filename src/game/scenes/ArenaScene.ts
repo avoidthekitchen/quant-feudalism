@@ -250,7 +250,7 @@ export class ArenaScene extends Phaser.Scene {
       this.arenaHeight / 2,
       this.arenaWidth + 40,
       this.arenaHeight + 40,
-      0x070b12,
+      0x22313c,
     );
 
     const startX = 80;
@@ -260,13 +260,13 @@ export class ArenaScene extends Phaser.Scene {
         const x = startX + col * 96 + (row % 2) * 48;
         const y = startY + row * 46;
         const tile = this.add.image(x, y, "qf-floor");
-        tile.setAlpha((row + col) % 5 === 0 ? 0.98 : 0.78);
+        tile.setAlpha((row + col) % 5 === 0 ? 0.9 : 0.68);
         tile.setDepth(-260 + row);
       }
     }
 
     for (let i = 0; i < 9; i += 1) {
-      const line = this.add.rectangle(820, 120 + i * 118, 1480, 1, 0x60ffd3, 0.08);
+      const line = this.add.rectangle(820, 120 + i * 118, 1480, 1, 0xc9fff0, 0.1);
       line.setAngle(-18);
       line.setDepth(-30);
     }
