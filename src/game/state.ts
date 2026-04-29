@@ -165,7 +165,10 @@ class RunState extends EventTarget {
   }
 
   canUseAbility(): boolean {
-    return this.computeCurrent >= 0 && this.allotmentCurrent >= 0;
+    return (
+      this.computeCurrent > -this.computeOverdrawCap &&
+      this.allotmentCurrent > -this.allotmentOverdrawCap
+    );
   }
 
   spend(amount: number): boolean {
