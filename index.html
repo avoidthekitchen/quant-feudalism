@@ -11,13 +11,15 @@
   <body>
     <div id="app-shell">
       <aside class="status-rail">
-        <p class="eyebrow">Post-Quantum Protectorate</p>
-        <h1>Quant Feudalism</h1>
-        <p class="deck">
-          Sterile corporate cyber-feudalism rendered as a combat procurement
-          ritual. Spend your Compute Rate Limit, burn finite Compute Credits,
-          and buy your way back into motion.
-        </p>
+        <section class="brand-block shop-only">
+          <p class="eyebrow">Post-Quantum Protectorate</p>
+          <h1>Quant Feudalism</h1>
+          <p class="deck">
+            Sterile corporate cyber-feudalism rendered as a combat procurement
+            ritual. Spend your Compute Rate Limit, burn finite Compute Credits,
+            and buy your way back into motion.
+          </p>
+        </section>
 
         <section class="panel stat-panel">
           <div class="panel-head">
@@ -46,7 +48,7 @@
           </div>
 
           <div class="metric-grid">
-            <div>
+            <div class="shop-only">
               <span class="metric-kicker">Shop Credits</span>
               <strong id="credits-label">0</strong>
             </div>
@@ -62,7 +64,7 @@
               <span class="metric-kicker">Kills</span>
               <strong id="kills-label">0</strong>
             </div>
-            <div>
+            <div class="shop-only">
               <span class="metric-kicker">Rounds Finished</span>
               <strong id="rounds-label">0</strong>
             </div>
@@ -74,7 +76,25 @@
             <span>Operational Notes</span>
           </div>
           <p id="status-note" class="status-note"></p>
-          <p id="report-note" class="report-note"></p>
+          <p id="report-note" class="report-note shop-only"></p>
+        </section>
+
+        <section class="panel shop-access-panel shop-only">
+          <div class="panel-head">
+            <span>Operations Access</span>
+            <span>Dispatch</span>
+          </div>
+          <div class="shop-access-actions">
+            <button id="deploy-button" class="deploy-button shop-open-button">
+              Enter Arena
+            </button>
+            <button id="workshop-open-button" class="deploy-button shop-open-button workshop-open-button">
+              Enter Workshop
+            </button>
+            <button id="shop-open-button" class="deploy-button shop-open-button">
+              Open Shop
+            </button>
+          </div>
         </section>
 
         <section class="panel controls-panel arena-only">
@@ -97,55 +117,99 @@
             <span>Dual Sovereigns // Civic Runtime Division</span>
             <span>Rate-Limited Human Asset</span>
           </div>
-          <div id="game-root" class="game-root"></div>
+          <div id="game-root" class="game-root">
+            <div id="arena-prompt" class="arena-prompt arena-only"></div>
+
+            <section id="shop-modal" class="shop-modal-shell shop-only">
+              <button
+                id="shop-backdrop"
+                class="shop-backdrop"
+                type="button"
+                aria-label="Close shop modal"
+              ></button>
+
+              <aside id="shop-panel" class="panel shop-panel">
+                <div class="panel-head shop-panel-head">
+                  <span>Procurement Vestibule</span>
+                  <button
+                    id="shop-close-button"
+                    class="shop-close-button"
+                    type="button"
+                    aria-label="Close shop modal"
+                  >
+                    Close
+                  </button>
+                </div>
+                <p class="shop-copy">
+                  Compute Credits are sold in rationed tranches. Every ability spends
+                  from the regenerating Compute Rate Limit and the purchased Compute
+                  Credits beneath it.
+                </p>
+                <div class="bundle-grid">
+                  <button class="shop-button" data-amount="72" data-cost="18">
+                    <span>Minor Refill</span>
+                    <strong>+72 Compute Credits</strong>
+                    <em>18 shop credits</em>
+                  </button>
+                  <button class="shop-button" data-amount="144" data-cost="34">
+                    <span>Corporate Slice</span>
+                    <strong>+144 Compute Credits</strong>
+                    <em>34 shop credits</em>
+                  </button>
+                  <button class="shop-button" data-amount="240" data-cost="52">
+                    <span>Dynasty Reserve</span>
+                    <strong>+240 Compute Credits</strong>
+                    <em>52 shop credits</em>
+                  </button>
+                </div>
+
+                <div class="shop-actions">
+                  <button id="rate-limit-button" class="shop-button">
+                    <span>Increase Rate Limit</span>
+                    <strong id="rate-limit-label">+16 Compute Rate Limit</strong>
+                    <em id="rate-limit-cost-label">42 shop credits</em>
+                  </button>
+                </div>
+              </aside>
+            </section>
+
+            <section id="workshop-modal" class="shop-modal-shell shop-only">
+              <button
+                id="workshop-backdrop"
+                class="shop-backdrop"
+                type="button"
+                aria-label="Close workshop modal"
+              ></button>
+
+              <aside class="panel shop-panel workshop-panel">
+                <div class="panel-head shop-panel-head">
+                  <span>Workshop Annex</span>
+                  <button
+                    id="workshop-close-button"
+                    class="shop-close-button"
+                    type="button"
+                    aria-label="Close workshop modal"
+                  >
+                    Close
+                  </button>
+                </div>
+                <p class="shop-copy">
+                  Structural repairs are handled outside the procurement queue. Restore
+                  body integrity here before the next deployment.
+                </p>
+
+                <div class="shop-actions">
+                  <button id="heal-button" class="shop-button">
+                    <span>Repair Integrity</span>
+                    <strong id="heal-label">+25 Integrity</strong>
+                    <em id="heal-cost-label">180 Compute Credits</em>
+                  </button>
+                </div>
+              </aside>
+            </section>
+          </div>
         </div>
       </main>
-
-      <aside id="shop-panel" class="panel shop-panel shop-only">
-        <div class="panel-head">
-          <span>Procurement Vestibule</span>
-          <span>Static Worker Prototype</span>
-        </div>
-        <p class="shop-copy">
-          Compute Credits are sold in rationed tranches. Every ability spends
-          from the regenerating Compute Rate Limit and the purchased Compute
-          Credits beneath it.
-        </p>
-        <div class="bundle-grid">
-          <button class="shop-button" data-amount="72" data-cost="18">
-            <span>Minor Refill</span>
-            <strong>+72 Compute Credits</strong>
-            <em>18 shop credits</em>
-          </button>
-          <button class="shop-button" data-amount="144" data-cost="34">
-            <span>Corporate Slice</span>
-            <strong>+144 Compute Credits</strong>
-            <em>34 shop credits</em>
-          </button>
-          <button class="shop-button" data-amount="240" data-cost="52">
-            <span>Dynasty Reserve</span>
-            <strong>+240 Compute Credits</strong>
-            <em>52 shop credits</em>
-          </button>
-        </div>
-
-        <div class="shop-actions">
-          <button id="heal-button" class="shop-button">
-            <span>Repair Integrity</span>
-            <strong id="heal-label">+25 Integrity</strong>
-            <em id="heal-cost-label">180 Compute Credits</em>
-          </button>
-          <button id="rate-limit-button" class="shop-button">
-            <span>Increase Rate Limit</span>
-            <strong id="rate-limit-label">+16 Compute Rate Limit</strong>
-            <em id="rate-limit-cost-label">42 shop credits</em>
-          </button>
-        </div>
-
-        <button id="deploy-button" class="deploy-button">
-          Enter Arena
-        </button>
-      </aside>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

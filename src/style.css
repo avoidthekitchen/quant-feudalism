@@ -49,7 +49,7 @@ body::before {
 
 #app-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 20px;
   min-height: 100vh;
   padding: 22px;
@@ -60,6 +60,11 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.brand-block {
+  display: grid;
+  gap: 8px;
 }
 
 .eyebrow,
@@ -213,12 +218,12 @@ h1 {
 .stage {
   min-width: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: stretch;
 }
 
 .stage-frame {
-  width: min(100%, 1080px);
+  width: min(100%, 1320px);
   padding: 14px;
   background: rgba(5, 9, 16, 0.74);
   border: 1px solid rgba(96, 255, 211, 0.18);
@@ -237,7 +242,7 @@ h1 {
 .game-root {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 16 / 8.6;
   background:
     linear-gradient(180deg, rgba(96, 255, 211, 0.04), rgba(255, 79, 164, 0.05)),
     linear-gradient(135deg, #071017, #02050a);
@@ -252,11 +257,104 @@ h1 {
   width: 100%;
   height: 100%;
   cursor: crosshair;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.arena-prompt {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 2;
+  max-width: 780px;
+  padding: 10px 12px;
+  color: #d7f6e7;
+  font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  background: rgba(7, 14, 22, 0.78);
+  border: 1px solid rgba(96, 255, 211, 0.16);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.shop-access-panel {
+  margin-top: auto;
+}
+
+.shop-access-actions {
+  display: grid;
+  gap: 12px;
 }
 
 .shop-panel {
+  position: relative;
   justify-content: flex-start;
   background: var(--panel-strong);
+  width: min(420px, calc(100% - 40px));
+  max-height: calc(100% - 40px);
+  overflow: auto;
+  z-index: 1;
+}
+
+.shop-modal-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms ease, visibility 160ms ease;
+}
+
+.shop-modal-shell.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.shop-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(96, 255, 211, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(3, 8, 14, 0.4), rgba(3, 8, 14, 0.72));
+  cursor: pointer;
+}
+
+.shop-modal-shell .shop-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.shop-panel-head {
+  align-items: center;
+}
+
+.shop-close-button {
+  appearance: none;
+  border: 1px solid rgba(96, 255, 211, 0.18);
+  background: rgba(8, 17, 25, 0.72);
+  color: var(--ink);
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.shop-open-button {
+  width: 100%;
+  margin-top: 0;
+}
+
+.workshop-open-button {
+  background: linear-gradient(135deg, #1f3247, #3d1c4f 58%, #6f3530);
 }
 
 .bundle-grid,
@@ -341,7 +439,15 @@ h1 {
     order: -1;
   }
 
+  .arena-prompt {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    font-size: 0.8rem;
+  }
+
   .shop-panel {
-    margin-bottom: 20px;
+    width: min(420px, calc(100% - 20px));
+    max-height: calc(100% - 20px);
   }
 }

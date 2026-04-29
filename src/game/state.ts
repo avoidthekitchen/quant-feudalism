@@ -35,6 +35,7 @@ class RunState extends EventTarget {
   sceneMode: SceneMode = "shop";
   notice =
     "Procurement chamber online. Buy Compute Credits or deploy into the arena.";
+  arenaPrompt = "";
   report: ArenaReport = {
     status: "retreated",
     kills: 0,
@@ -52,6 +53,15 @@ class RunState extends EventTarget {
 
   setNotice(message: string): void {
     this.notice = message;
+    this.emitChange();
+  }
+
+  setArenaPrompt(message: string): void {
+    if (this.arenaPrompt === message) {
+      return;
+    }
+
+    this.arenaPrompt = message;
     this.emitChange();
   }
 
@@ -139,6 +149,7 @@ class RunState extends EventTarget {
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
     this.lastSpendAt = 0;
+    this.arenaPrompt = "Space dash, left click melee, right click ranged. Abilities spend Compute.";
     this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
     this.emitChange();
   }
@@ -146,6 +157,7 @@ class RunState extends EventTarget {
   restoreForShop(note?: string): void {
     this.sceneMode = "shop";
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
+    this.arenaPrompt = "";
     if (note) {
       this.notice = note;
     }

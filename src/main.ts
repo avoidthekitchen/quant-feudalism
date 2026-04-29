@@ -5,6 +5,7 @@ import { gameState } from "./game/state";
 
 const game = createGame("game-root");
 
+const appShell = document.querySelector<HTMLElement>("#app-shell");
 const sceneChip = document.querySelector<HTMLSpanElement>("#scene-chip");
 const computeFill = document.querySelector<HTMLDivElement>("#compute-fill");
 const allotmentFill = document.querySelector<HTMLDivElement>("#allotment-fill");
@@ -17,7 +18,15 @@ const killsLabel = document.querySelector<HTMLElement>("#kills-label");
 const roundsLabel = document.querySelector<HTMLElement>("#rounds-label");
 const statusNote = document.querySelector<HTMLParagraphElement>("#status-note");
 const reportNote = document.querySelector<HTMLParagraphElement>("#report-note");
-const shopPanel = document.querySelector<HTMLElement>("#shop-panel");
+const arenaPromptLabel = document.querySelector<HTMLDivElement>("#arena-prompt");
+const shopModal = document.querySelector<HTMLElement>("#shop-modal");
+const workshopModal = document.querySelector<HTMLElement>("#workshop-modal");
+const shopOpenButton = document.querySelector<HTMLButtonElement>("#shop-open-button");
+const workshopOpenButton = document.querySelector<HTMLButtonElement>("#workshop-open-button");
+const shopCloseButton = document.querySelector<HTMLButtonElement>("#shop-close-button");
+const shopBackdrop = document.querySelector<HTMLButtonElement>("#shop-backdrop");
+const workshopCloseButton = document.querySelector<HTMLButtonElement>("#workshop-close-button");
+const workshopBackdrop = document.querySelector<HTMLButtonElement>("#workshop-backdrop");
 const deployButton = document.querySelector<HTMLButtonElement>("#deploy-button");
 const healButton = document.querySelector<HTMLButtonElement>("#heal-button");
 const healLabel = document.querySelector<HTMLElement>("#heal-label");
@@ -28,13 +37,34 @@ const rateLimitCostLabel = document.querySelector<HTMLElement>("#rate-limit-cost
 const shopButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".bundle-grid .shop-button"));
 const shopOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".shop-only"));
 const arenaOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".arena-only"));
+let shopModalOpen = false;
+let workshopModalOpen = false;
 
 function numberLabel(value: number): string {
   return value >= 0 ? Math.round(value).toString() : `-${Math.round(Math.abs(value))}`;
 }
 
+function setShopModalOpen(open: boolean): void {
+  shopModalOpen = open;
+  shopModal?.classList.toggle("open", open && gameState.sceneMode === "shop");
+}
+
+function setWorkshopModalOpen(open: boolean): void {
+  workshopModalOpen = open;
+  workshopModal?.classList.toggle("open", open && gameState.sceneMode === "shop");
+}
+
 function renderHud(): void {
-  if (!sceneChip || !computeFill || !allotmentFill || !computeLabel || !allotmentLabel) {
+  if (
+    !sceneChip ||
+    !computeFill ||
+    !allotmentFill ||
+    !computeLabel ||
+    !allotmentLabel ||
+    !arenaPromptLabel ||
+    !integrityLabel ||
+    !throttleLabel
+  ) {
     return;
   }
 
@@ -43,6 +73,10 @@ function renderHud(): void {
   const throttle = gameState.getThrottleSeverity();
   const inShop = gameState.sceneMode === "shop";
   const deployDisabled = !inShop || gameState.allotmentCurrent <= 0 || gameState.integrityCurrent <= 0;
+  if (!inShop) {
+    shopModalOpen = false;
+    workshopModalOpen = false;
+  }
 
   sceneChip.textContent = inShop ? "Shop" : "Arena";
   computeFill.style.width = `${computeRatio * 100}%`;
@@ -58,6 +92,7 @@ function renderHud(): void {
   killsLabel!.textContent = gameState.kills.toString();
   roundsLabel!.textContent = gameState.roundsFinished.toString();
   statusNote!.textContent = gameState.notice;
+  arenaPromptLabel!.textContent = gameState.arenaPrompt;
   reportNote!.textContent =
     `${gameState.report.note} Shop Credits +${gameState.report.creditsEarned}. Compute Credits spent ${Math.round(gameState.report.allotmentSpent)}.`;
 
@@ -94,7 +129,9 @@ function renderHud(): void {
     }
   });
 
-  shopPanel?.setAttribute("data-scene", gameState.sceneMode);
+  appShell?.setAttribute("data-scene", gameState.sceneMode);
+  setShopModalOpen(shopModalOpen);
+  setWorkshopModalOpen(workshopModalOpen);
 }
 
 shopButtons.forEach((button) => {
@@ -113,6 +150,32 @@ rateLimitButton?.addEventListener("click", () => {
   gameState.upgradeComputeRateLimit();
 });
 
+shopOpenButton?.addEventListener("click", () => {
+  setWorkshopModalOpen(false);
+  setShopModalOpen(true);
+});
+
+workshopOpenButton?.addEventListener("click", () => {
+  setShopModalOpen(false);
+  setWorkshopModalOpen(true);
+});
+
+shopCloseButton?.addEventListener("click", () => {
+  setShopModalOpen(false);
+});
+
+shopBackdrop?.addEventListener("click", () => {
+  setShopModalOpen(false);
+});
+
+workshopCloseButton?.addEventListener("click", () => {
+  setWorkshopModalOpen(false);
+});
+
+workshopBackdrop?.addEventListener("click", () => {
+  setWorkshopModalOpen(false);
+});
+
 deployButton?.addEventListener("click", () => {
   if (
     gameState.sceneMode !== "shop" ||
@@ -123,6 +186,8 @@ deployButton?.addEventListener("click", () => {
   }
 
   gameState.beginArena();
+  setShopModalOpen(false);
+  setWorkshopModalOpen(false);
   game.scene.start(SCENES.arena);
 });
 

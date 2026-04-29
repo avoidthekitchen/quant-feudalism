@@ -1,5 +1,5 @@
 import * as Phaser from "phaser";
-import { GAME_HEIGHT, GAME_WIDTH, SCENES } from "../constants";
+import { GAME_WIDTH, SCENES } from "../constants";
 import {
   ACTOR_ART_SCALE,
   DRONE_SHEET_KEY,
@@ -92,7 +92,6 @@ export class ArenaScene extends Phaser.Scene {
     F: Phaser.Input.Keyboard.Key;
     SPACE: Phaser.Input.Keyboard.Key;
   };
-  private promptText!: Phaser.GameObjects.Text;
   private blurFilter?: Phaser.Filters.Blur;
   private extractionRing?: Phaser.GameObjects.Arc;
   private arenaCleared = false;
@@ -175,7 +174,8 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnEnemies();
 
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setZoom(1.08);
+    this.cameras.main.setRoundPixels(true);
+    this.cameras.main.setZoom(1);
     this.blurFilter = this.cameras.main.filters!.external.addBlur(
       0,
       1,
@@ -190,19 +190,9 @@ export class ArenaScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,SPACE") as ArenaScene["cursors"];
 
-    this.promptText = this.add.text(22, GAME_HEIGHT - 92, "", {
-      fontFamily: "Azeret Mono, monospace",
-      fontSize: "13px",
-      color: "#eaf8ea",
-      backgroundColor: "rgba(11, 17, 18, 0.56)",
-      padding: { left: 8, right: 8, top: 6, bottom: 6 },
-    });
-    this.promptText.setScrollFactor(0);
-    this.promptText.setDepth(9999);
-
     this.enemyCountLabel = this.add.text(24, 24, "", {
       fontFamily: "Azeret Mono, monospace",
-      fontSize: "14px",
+      fontSize: "16px",
       color: "#dcf7e3",
     });
     this.enemyCountLabel.setScrollFactor(0);
@@ -392,7 +382,7 @@ export class ArenaScene extends Phaser.Scene {
     this.add
       .text(this.extractionPoint.x, this.extractionPoint.y - 104, "EXTRACTION", {
         fontFamily: "Azeret Mono, monospace",
-        fontSize: "13px",
+        fontSize: "15px",
         color: "#dff6e5",
       })
       .setOrigin(0.5)
@@ -1129,8 +1119,8 @@ export class ArenaScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: drone.sprite,
-      alpha: { from: 0.25, to: 1 },
-      duration: 90,
+      alpha: { from: 0.62, to: 1 },
+      duration: 120,
       yoyo: true,
     });
 
@@ -1354,10 +1344,17 @@ export class ArenaScene extends Phaser.Scene {
   private updateVisuals(): void {
     const severity = gameState.getVisionBlurStrength();
     if (this.blurFilter) {
-      this.blurFilter.strength = 0.001 + severity * 0.95;
-      this.blurFilter.x = 0.8 + severity * 2.4;
-      this.blurFilter.y = 0.8 + severity * 2.4;
-      this.blurFilter.steps = severity > 0.7 ? 4 : 2;
+      if (severity <= 0) {
+        this.blurFilter.strength = 0;
+        this.blurFilter.x = 0;
+        this.blurFilter.y = 0;
+        this.blurFilter.steps = 1;
+      } else {
+        this.blurFilter.strength = severity * 0.95;
+        this.blurFilter.x = 0.8 + severity * 2.4;
+        this.blurFilter.y = 0.8 + severity * 2.4;
+        this.blurFilter.steps = severity > 0.7 ? 4 : 2;
+      }
     }
 
     this.enemyCountLabel?.setText(
@@ -1376,7 +1373,7 @@ export class ArenaScene extends Phaser.Scene {
     );
 
     if (gateDistance < 92) {
-      this.promptText.setText(
+      gameState.setArenaPrompt(
         this.arenaCleared
           ? "Press F to extract and collect the corporate bounty."
           : "Press F to emergency-extract. Surviving drones will void the bonus.",
@@ -1385,16 +1382,22 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     if (gameState.allotmentCurrent <= 0) {
-      this.promptText.setText("Compute Credits exhausted. Movement and sight are degraded until you reach the shop.");
+      gameState.setArenaPrompt(
+        "Compute Credits exhausted. Movement and sight are degraded until you reach the shop.",
+      );
       return;
     }
 
     if (gameState.computeCurrent < 0) {
-      this.promptText.setText("Rate-limited. Let the Compute Rate Limit recover or keep skating through the debt.");
+      gameState.setArenaPrompt(
+        "Rate-limited. Let the Compute Rate Limit recover or keep skating through the debt.",
+      );
       return;
     }
 
-    this.promptText.setText("Space dash, left click melee, right click ranged. Abilities spend Compute.");
+    gameState.setArenaPrompt(
+      "Space dash, left click melee, right click ranged. Abilities spend Compute.",
+    );
   }
 
   private canExtract(): boolean {
