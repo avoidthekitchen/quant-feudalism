@@ -17,6 +17,8 @@ const throttleLabel = document.querySelector<HTMLElement>("#throttle-label");
 const killsLabel = document.querySelector<HTMLElement>("#kills-label");
 const roundsLabel = document.querySelector<HTMLElement>("#rounds-label");
 const statusNote = document.querySelector<HTMLParagraphElement>("#status-note");
+const previousNote = document.querySelector<HTMLParagraphElement>("#previous-note");
+const olderNote = document.querySelector<HTMLParagraphElement>("#older-note");
 const reportNote = document.querySelector<HTMLParagraphElement>("#report-note");
 const arenaPromptLabel = document.querySelector<HTMLDivElement>("#arena-prompt");
 const shopModal = document.querySelector<HTMLElement>("#shop-modal");
@@ -39,6 +41,7 @@ const shopOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".shop-
 const arenaOnlyPanels = Array.from(document.querySelectorAll<HTMLElement>(".arena-only"));
 let shopModalOpen = false;
 let workshopModalOpen = false;
+const noteHistory = [gameState.notice];
 
 function numberLabel(value: number): string {
   return value >= 0 ? Math.round(value).toString() : `-${Math.round(Math.abs(value))}`;
@@ -91,7 +94,15 @@ function renderHud(): void {
   throttleLabel!.textContent = gameState.getThrottleLabel();
   killsLabel!.textContent = gameState.kills.toString();
   roundsLabel!.textContent = gameState.roundsFinished.toString();
+
+  if (noteHistory[0] !== gameState.notice) {
+    noteHistory.unshift(gameState.notice);
+    noteHistory.length = Math.min(noteHistory.length, 3);
+  }
+
   statusNote!.textContent = gameState.notice;
+  previousNote!.textContent = noteHistory[1] ?? "";
+  olderNote!.textContent = noteHistory[2] ?? "";
   arenaPromptLabel!.textContent = gameState.arenaPrompt;
   reportNote!.textContent =
     `${gameState.report.note} Shop Credits +${gameState.report.creditsEarned}. Compute Credits spent ${Math.round(gameState.report.allotmentSpent)}.`;
@@ -102,7 +113,7 @@ function renderHud(): void {
   deployButton!.disabled = deployDisabled;
   deployButton!.textContent = deployDisabled
     ? gameState.integrityCurrent <= 0
-      ? "Repair Integrity Required"
+      ? "Repair Integrity at Workshop"
       : "Compute Credits Required"
     : "Enter Arena";
 

@@ -21,61 +21,13 @@
           </p>
         </section>
 
-        <section class="panel stat-panel">
-          <div class="panel-head">
-            <span>Provisioning Ledger</span>
-            <span id="scene-chip">Shop</span>
-          </div>
-
-          <div class="metric">
-            <div class="metric-label-row">
-              <span>Compute Rate Limit</span>
-              <strong id="compute-label">0 / 0</strong>
-            </div>
-            <div class="meter meter-compute">
-              <div id="compute-fill" class="meter-fill"></div>
-            </div>
-          </div>
-
-          <div class="metric">
-            <div class="metric-label-row">
-              <span>Compute Credits</span>
-              <strong id="allotment-label">0 / 0</strong>
-            </div>
-            <div class="meter meter-allotment">
-              <div id="allotment-fill" class="meter-fill"></div>
-            </div>
-          </div>
-
-          <div class="metric-grid">
-            <div class="shop-only">
-              <span class="metric-kicker">Shop Credits</span>
-              <strong id="credits-label">0</strong>
-            </div>
-            <div>
-              <span class="metric-kicker">Integrity</span>
-              <strong id="integrity-label">0 / 0</strong>
-            </div>
-            <div>
-              <span class="metric-kicker">Throttle</span>
-              <strong id="throttle-label">Nominal</strong>
-            </div>
-            <div>
-              <span class="metric-kicker">Kills</span>
-              <strong id="kills-label">0</strong>
-            </div>
-            <div class="shop-only">
-              <span class="metric-kicker">Rounds Finished</span>
-              <strong id="rounds-label">0</strong>
-            </div>
-          </div>
-        </section>
-
         <section class="panel log-panel">
           <div class="panel-head">
             <span>Operational Notes</span>
           </div>
           <p id="status-note" class="status-note"></p>
+          <p id="previous-note" class="report-note"></p>
+          <p id="older-note" class="report-note"></p>
           <p id="report-note" class="report-note shop-only"></p>
         </section>
 
@@ -208,6 +160,58 @@
               </aside>
             </section>
           </div>
+
+          <section class="panel stat-panel">
+            <div class="panel-head">
+              <span>Provisioning Ledger</span>
+              <span id="scene-chip">Shop</span>
+            </div>
+
+            <div class="ledger-primary">
+              <div class="metric">
+                <div class="metric-label-row">
+                  <span>Compute Rate Limit</span>
+                  <strong id="compute-label">0 / 0</strong>
+                </div>
+                <div class="meter meter-compute">
+                  <div id="compute-fill" class="meter-fill"></div>
+                </div>
+              </div>
+
+              <div class="metric">
+                <div class="metric-label-row">
+                  <span>Compute Credits</span>
+                  <strong id="allotment-label">0 / 0</strong>
+                </div>
+                <div class="meter meter-allotment">
+                  <div id="allotment-fill" class="meter-fill"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="metric-grid">
+              <div class="shop-only">
+                <span class="metric-kicker">Shop Credits</span>
+                <strong id="credits-label">0</strong>
+              </div>
+              <div>
+                <span class="metric-kicker">Integrity</span>
+                <strong id="integrity-label">0 / 0</strong>
+              </div>
+              <div>
+                <span class="metric-kicker">Throttle</span>
+                <strong id="throttle-label">Nominal</strong>
+              </div>
+              <div>
+                <span class="metric-kicker">Kills</span>
+                <strong id="kills-label">0</strong>
+              </div>
+              <div class="shop-only">
+                <span class="metric-kicker">Rounds Finished</span>
+                <strong id="rounds-label">0</strong>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
     </div>
