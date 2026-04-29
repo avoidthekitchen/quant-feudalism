@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Quant Feudalism</title>
+  </head>
+  <body>
+    <div id="app-shell">
+      <aside class="status-rail">
+        <p class="eyebrow">Post-Quantum Protectorate</p>
+        <h1>Quant Feudalism</h1>
+        <p class="deck">
+          Sterile corporate cyber-feudalism rendered as a combat procurement
+          ritual. Spend your windowed compute, bleed from your finite allotment,
+          and buy your way back into motion.
+        </p>
+
+        <section class="panel stat-panel">
+          <div class="panel-head">
+            <span>Provisioning Ledger</span>
+            <span id="scene-chip">Shop</span>
+          </div>
+
+          <div class="metric">
+            <div class="metric-label-row">
+              <span>Compute Window</span>
+              <strong id="compute-label">0 / 0</strong>
+            </div>
+            <div class="meter meter-compute">
+              <div id="compute-fill" class="meter-fill"></div>
+            </div>
+          </div>
+
+          <div class="metric">
+            <div class="metric-label-row">
+              <span>Allotment Pool</span>
+              <strong id="allotment-label">0 / 0</strong>
+            </div>
+            <div class="meter meter-allotment">
+              <div id="allotment-fill" class="meter-fill"></div>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <div>
+              <span class="metric-kicker">Credits</span>
+              <strong id="credits-label">0</strong>
+            </div>
+            <div>
+              <span class="metric-kicker">Integrity</span>
+              <strong id="integrity-label">0 / 0</strong>
+            </div>
+            <div>
+              <span class="metric-kicker">Throttle</span>
+              <strong id="throttle-label">Nominal</strong>
+            </div>
+            <div>
+              <span class="metric-kicker">Kills</span>
+              <strong id="kills-label">0</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <span>Operational Notes</span>
+          </div>
+          <p id="status-note" class="status-note"></p>
+          <p id="report-note" class="report-note"></p>
+        </section>
+
+        <section class="panel controls-panel arena-only">
+          <div class="panel-head">
+            <span>Combat Controls</span>
+          </div>
+          <ul class="control-list">
+            <li><span>Move</span><strong>W A S D</strong></li>
+            <li><span>Dash</span><strong>Space</strong></li>
+            <li><span>Melee</span><strong>Left Click</strong></li>
+            <li><span>Ranged</span><strong>Right Click</strong></li>
+            <li><span>Extract</span><strong>F on Gate</strong></li>
+          </ul>
+        </section>
+      </aside>
+
+      <main class="stage">
+        <div class="stage-frame">
+          <div class="stage-topline">
+            <span>Dual Sovereigns // Civic Runtime Division</span>
+            <span>Rate-Limited Human Asset</span>
+          </div>
+          <div id="game-root" class="game-root"></div>
+        </div>
+      </main>
+
+      <aside id="shop-panel" class="panel shop-panel shop-only">
+        <div class="panel-head">
+          <span>Procurement Vestibule</span>
+          <span>Static Worker Prototype</span>
+        </div>
+        <p class="shop-copy">
+          Compute is sold in rationed tranches. Every attack spends from your
+          regenerating window and also burns down the purchased allotment
+          beneath it.
+        </p>
+        <div class="bundle-grid">
+          <button class="shop-button" data-amount="72" data-cost="18">
+            <span>Minor Refill</span>
+            <strong>+72 Allotment</strong>
+            <em>18 credits</em>
+          </button>
+          <button class="shop-button" data-amount="144" data-cost="34">
+            <span>Corporate Slice</span>
+            <strong>+144 Allotment</strong>
+            <em>34 credits</em>
+          </button>
+          <button class="shop-button" data-amount="240" data-cost="52">
+            <span>Dynasty Reserve</span>
+            <strong>+240 Allotment</strong>
+            <em>52 credits</em>
+          </button>
+        </div>
+
+        <button id="deploy-button" class="deploy-button">
+          Enter Arena
+        </button>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
