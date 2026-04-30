@@ -21,7 +21,10 @@ let unlockRetryMode: MusicMode | null = null;
 export function playBackgroundMusic(scene: Phaser.Scene, mode: MusicMode): void {
   if (currentMode === mode && currentTrack && !currentTrack.pendingRemove) {
     if (!currentTrack.isPlaying && !currentTrack.isPaused) {
-      playOrRetryOnUnlock(scene, mode, currentTrack);
+      const track = currentTrack;
+      if (playOrRetryOnUnlock(scene, mode, track, () => fadeIn(scene, track))) {
+        fadeIn(scene, track);
+      }
     }
     return;
   }
@@ -35,44 +38,91 @@ export function playBackgroundMusic(scene: Phaser.Scene, mode: MusicMode): void 
   }) as ManagedMusic;
 
   currentTrack = nextTrack;
-  if (!playOrRetryOnUnlock(scene, mode, nextTrack)) {
-    nextTrack.volume = MUSIC_VOLUME;
+  cleanupCurrentTrackOnShutdown(scene, mode, nextTrack);
+  if (playOrRetryOnUnlock(scene, mode, nextTrack, () => fadeIn(scene, nextTrack))) {
+    fadeIn(scene, nextTrack);
   }
-
-  scene.tweens.add({
-    targets: nextTrack,
-    volume: MUSIC_VOLUME,
-    duration: MUSIC_FADE_MS,
-    ease: "Sine.easeOut",
-  });
 
   if (!previousTrack || previousTrack.pendingRemove) {
     return;
   }
 
+  fadeOutAndDestroy(scene, previousTrack);
+}
+
+function fadeIn(scene: Phaser.Scene, track: ManagedMusic | null): void {
+  if (!track || track.pendingRemove) {
+    return;
+  }
+
   scene.tweens.add({
-    targets: previousTrack,
+    targets: track,
+    volume: MUSIC_VOLUME,
+    duration: MUSIC_FADE_MS,
+    ease: "Sine.easeOut",
+  });
+}
+
+function fadeOutAndDestroy(scene: Phaser.Scene, track: ManagedMusic): void {
+  const destroyTrack = () => {
+    if (track.pendingRemove) {
+      return;
+    }
+    track.stop();
+    track.destroy();
+  };
+
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, destroyTrack);
+  scene.tweens.add({
+    targets: track,
     volume: 0,
     duration: MUSIC_FADE_MS,
     ease: "Sine.easeIn",
     onComplete: () => {
-      previousTrack.stop();
-      previousTrack.destroy();
+      scene.events.off(Phaser.Scenes.Events.SHUTDOWN, destroyTrack);
+      destroyTrack();
     },
   });
 }
 
-function playOrRetryOnUnlock(scene: Phaser.Scene, mode: MusicMode, track: ManagedMusic): boolean {
+function cleanupCurrentTrackOnShutdown(
+  scene: Phaser.Scene,
+  mode: MusicMode,
+  track: ManagedMusic,
+): void {
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    if (currentMode !== mode || currentTrack !== track || track.pendingRemove) {
+      return;
+    }
+    track.stop();
+    track.destroy();
+    currentMode = null;
+    currentTrack = null;
+  });
+}
+
+function playOrRetryOnUnlock(
+  scene: Phaser.Scene,
+  mode: MusicMode,
+  track: ManagedMusic,
+  onStarted: () => void,
+): boolean {
   const started = track.play();
-  if (started || !scene.sound.locked || unlockRetryMode === mode) {
-    return started;
+  if (started) {
+    return true;
+  }
+
+  if (!scene.sound.locked || unlockRetryMode === mode) {
+    return false;
   }
 
   unlockRetryMode = mode;
   scene.sound.once(Phaser.Sound.Events.UNLOCKED, () => {
     unlockRetryMode = null;
     if (currentMode === mode && currentTrack === track && !track.pendingRemove && !track.isPlaying) {
-      track.play();
+      if (track.play()) {
+        onStarted();
+      }
     }
   });
 
