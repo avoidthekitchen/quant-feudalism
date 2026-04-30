@@ -510,24 +510,14 @@ export class RunState extends EventTarget {
   }
 
   getTopRuns(limit = 3): ScoreboardEntry[] {
-    const historyEntries: ScoreboardEntry[] = this.runHistory.map((entry) => ({
-      runId: entry.runId,
-      roundsFinished: entry.roundsFinished,
-      kills: entry.kills,
-      active: false,
-      endReason: entry.endReason,
-    }));
-
-    if (this.runActive) {
-      historyEntries.push({
-        runId: this.runId,
-        roundsFinished: this.roundsFinished,
-        kills: this.getCurrentRunKills(),
-        active: true,
-      });
-    }
-
-    return historyEntries
+    const archived: ScoreboardEntry[] = this.runHistory
+      .map((entry) => ({
+        runId: entry.runId,
+        roundsFinished: entry.roundsFinished,
+        kills: entry.kills,
+        active: false,
+        endReason: entry.endReason,
+      }))
       .sort((left, right) => {
         if (right.roundsFinished !== left.roundsFinished) {
           return right.roundsFinished - left.roundsFinished;
@@ -536,8 +526,20 @@ export class RunState extends EventTarget {
           return right.kills - left.kills;
         }
         return right.runId - left.runId;
-      })
-      .slice(0, limit);
+      });
+
+    if (!this.runActive) {
+      return archived.slice(0, limit);
+    }
+
+    const activeEntry: ScoreboardEntry = {
+      runId: this.runId,
+      roundsFinished: this.roundsFinished,
+      kills: this.getCurrentRunKills(),
+      active: true,
+    };
+
+    return [...archived.slice(0, limit - 1), activeEntry];
   }
 
   getSavedArenaResume(): SavedArenaResume | null {
@@ -662,7 +664,11 @@ export class RunState extends EventTarget {
       return;
     }
 
-    storage.setItem(STORAGE_KEY, JSON.stringify(this.serialize()));
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify(this.serialize()));
+    } catch {
+      // Storage unavailable or full — gameplay continues without persistence.
+    }
   }
 
   getComputeRatio(): number {

@@ -249,11 +249,38 @@ test("scoreboard ranking sorts by rounds then kills then recency and includes th
       kills: entry.kills,
     })),
     [
-      { runId: 4, active: true, roundsFinished: 4, kills: 8 },
       { runId: 3, active: false, roundsFinished: 4, kills: 8 },
       { runId: 2, active: false, roundsFinished: 4, kills: 6 },
+      { runId: 4, active: true, roundsFinished: 4, kills: 8 },
     ],
   );
+});
+
+test("active run always appears in leaderboard even when outscored by archived runs", () => {
+  const state = new RunState();
+
+  state.roundsFinished = 5;
+  state.runKills = 20;
+  state.endRun("manual");
+
+  state.startNewRun();
+  state.roundsFinished = 4;
+  state.runKills = 12;
+  state.endRun("manual");
+
+  state.startNewRun();
+  state.roundsFinished = 3;
+  state.runKills = 6;
+
+  const leaderboard = state.getTopRuns(2);
+
+  assert.equal(leaderboard.length, 2);
+  assert.equal(leaderboard[0].runId, 1);
+  assert.equal(leaderboard[0].active, false);
+  assert.equal(leaderboard[0].roundsFinished, 5);
+  assert.equal(leaderboard[1].runId, 3);
+  assert.equal(leaderboard[1].active, true);
+  assert.equal(leaderboard[1].roundsFinished, 3);
 });
 
 test("serialize and hydrate round-trip shop state and run history", () => {
