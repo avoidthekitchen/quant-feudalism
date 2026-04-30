@@ -25,7 +25,7 @@ import {
   type SnapshotCacheFlags,
   type TimedArenaSnapshot,
 } from "../quantum-tuner";
-import { gameState } from "../state";
+import { gameState, type SavedArenaResume } from "../state";
 
 type AbilityAction = "dash" | "melee" | "ranged";
 
@@ -88,6 +88,7 @@ type GhostReplay = {
 
 export class ArenaScene extends Phaser.Scene {
   private static readonly collapseVisualDurationMs = 1_000;
+  private static readonly resumeSaveIntervalMs = 600;
   private static readonly combatSpeedMultiplier = 1.5;
   private static readonly playerBaseSpeed = 220;
   private static readonly playerBaseAcceleration = 510;
@@ -157,6 +158,7 @@ export class ArenaScene extends Phaser.Scene {
   private cacheWindowHints: Partial<Record<AbilityAction, CacheWindowHint>> = {};
   private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
   private timelineTimeMs = 0;
+  private arenaElapsedTimeMs = 0;
   private snapshotAccumulatorMs = 0;
   private snapshotHistory: TimedArenaSnapshot[] = [];
   private collapsePlayback?: CollapsePlayback;
@@ -167,12 +169,21 @@ export class ArenaScene extends Phaser.Scene {
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
+  private resumeSaveAccumulatorMs = 0;
+  private readonly handlePagePersist = (): void => {
+    this.saveResumeCheckpoint();
+  };
+  private readonly handleVisibilityPersist = (): void => {
+    if (document.visibilityState === "hidden") {
+      this.saveResumeCheckpoint();
+    }
+  };
 
   constructor() {
     super(SCENES.arena);
   }
 
-  create(): void {
+  create(data?: { resume?: SavedArenaResume }): void {
     this.drones = [];
     this.projectiles = [];
     this.enemySpawnPoints = [];
@@ -195,8 +206,10 @@ export class ArenaScene extends Phaser.Scene {
       ranged: false,
     };
     this.transientVisuals.clear();
-    this.timelineTimeMs = 0;
+    this.timelineTimeMs = data?.resume?.timelineTimeMs ?? 0;
+    this.arenaElapsedTimeMs = data?.resume?.arenaElapsedTimeMs ?? 0;
     this.snapshotAccumulatorMs = 0;
+    this.resumeSaveAccumulatorMs = 0;
     this.snapshotHistory = [];
     this.collapsePlayback = undefined;
     this.ghostReplay = undefined;
@@ -302,15 +315,48 @@ export class ArenaScene extends Phaser.Scene {
     this.enemyCountLabel.setScrollFactor(0);
     this.enemyCountLabel.setDepth(9999);
 
+    if (data?.resume) {
+      try {
+        this.restoreArenaSnapshot(data.resume.snapshot, {
+          emitRunState: false,
+          bumpHudTimeline: false,
+        });
+      } catch (error) {
+        console.warn("Arena resume failed; returning to shop.", error);
+        gameState.clearArenaResume();
+        gameState.restoreForShop(
+          "Arena restore failed. Returned to procurement chamber with run data preserved.",
+        );
+        this.scene.start(SCENES.shop);
+        return;
+      }
+    }
+
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
+    gameState.setExtractionReady(this.arenaCleared);
+    this.saveResumeCheckpoint();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", this.handlePagePersist);
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityPersist);
+    }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.saveResumeCheckpoint();
       this.input.off("pointerdown", this.handlePointerDown, this);
       this.clearTransientVisuals();
       this.destroyAllProjectiles();
       this.destroyAllDrones();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pagehide", this.handlePagePersist);
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", this.handleVisibilityPersist);
+      }
     });
   }
 
@@ -323,7 +369,9 @@ export class ArenaScene extends Phaser.Scene {
 
     const dt = delta / 1000;
     this.timelineTimeMs += delta;
+    this.arenaElapsedTimeMs += delta;
     this.snapshotAccumulatorMs += delta;
+    this.resumeSaveAccumulatorMs += delta;
     this.advanceAbilityCooldowns(delta);
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
@@ -352,13 +400,14 @@ export class ArenaScene extends Phaser.Scene {
       const note = this.arenaCleared
         ? "Arena pacified. Procurement rights renewed."
         : "Emergency extraction granted. The corporations keep the unused fear.";
-      gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note);
+      gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note, this.arenaElapsedTimeMs);
       this.scene.start(SCENES.shop);
       return;
     }
 
     if (!this.arenaCleared && this.drones.length === 0) {
       this.arenaCleared = true;
+      gameState.setExtractionReady(true);
       gameState.setNotice(
         "All hostiles decommissioned. Northern extraction gate now serves as your audit exit.",
       );
@@ -1290,6 +1339,7 @@ export class ArenaScene extends Phaser.Scene {
           gameState.finishArena(
             "decommissioned",
             "Integrity collapse. The corporations reclaimed your body from the arena floor.",
+            this.arenaElapsedTimeMs,
           );
           this.scene.start(SCENES.shop);
           return true;
@@ -1789,6 +1839,11 @@ export class ArenaScene extends Phaser.Scene {
       this.captureArenaSnapshot(),
       this.timelineTimeMs,
     );
+
+    if (this.resumeSaveAccumulatorMs >= ArenaScene.resumeSaveIntervalMs) {
+      this.resumeSaveAccumulatorMs = 0;
+      this.saveResumeCheckpoint();
+    }
   }
 
   private captureArenaSnapshot(): ArenaSnapshot {
@@ -1900,11 +1955,14 @@ export class ArenaScene extends Phaser.Scene {
       ranged: snapshot.player.cacheDiscountBlocked.ranged,
     };
 
+    const playerX = this.clampArenaX(snapshot.player.position.x);
+    const playerY = this.clampArenaY(snapshot.player.position.y);
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
-    playerBody.reset(snapshot.player.position.x, snapshot.player.position.y);
-    this.player.setPosition(snapshot.player.position.x, snapshot.player.position.y);
+    playerBody.reset(playerX, playerY);
+    this.player.setPosition(playerX, playerY);
     this.player.setVelocity(this.velocity.x, this.velocity.y);
     this.player.setAngle(snapshot.player.angle);
+    this.cameras.main.centerOn(playerX, playerY);
     this.currentPlayerAnim = "";
     this.updatePlayerShadow();
     this.syncPlayerPresentation();
@@ -1913,6 +1971,7 @@ export class ArenaScene extends Phaser.Scene {
       emitChange: emitRunState,
       bumpTimelineVersion: bumpHudTimeline,
     });
+    gameState.setExtractionReady(this.arenaCleared, { emitChange: emitRunState });
 
     this.projectiles = snapshot.projectiles.map((projectileSnapshot) =>
       this.createProjectileFromSnapshot(projectileSnapshot),
@@ -1949,8 +2008,8 @@ export class ArenaScene extends Phaser.Scene {
 
   private createProjectileFromSnapshot(projectileSnapshot: ProjectileArenaSnapshot): Projectile {
     const sprite = this.physics.add.image(
-      projectileSnapshot.position.x,
-      projectileSnapshot.position.y,
+      this.clampArenaX(projectileSnapshot.position.x),
+      this.clampArenaY(projectileSnapshot.position.y),
       "qf-bolt",
     );
     sprite.setRotation(projectileSnapshot.rotation);
@@ -1968,14 +2027,16 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createDrone(snapshot: EnemyArenaSnapshot): EnemyUnit {
-    const shadow = this.add.image(snapshot.position.x, snapshot.position.y + 18, "qf-shadow");
+    const x = this.clampArenaX(snapshot.position.x);
+    const y = this.clampArenaY(snapshot.position.y);
+    const shadow = this.add.image(x, y + 18, "qf-shadow");
     shadow.setScale(0.58, 0.52);
     shadow.setAlpha(0.42);
     shadow.setDepth(snapshot.position.y - 6);
 
     const sprite = this.physics.add.sprite(
-      snapshot.position.x,
-      snapshot.position.y,
+      x,
+      y,
       DRONE_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
@@ -2020,6 +2081,27 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     return drone;
+  }
+
+  private saveResumeCheckpoint(): void {
+    if (gameState.sceneMode !== "arena") {
+      return;
+    }
+
+    gameState.saveArenaResume({
+      timelineTimeMs: this.timelineTimeMs,
+      arenaElapsedTimeMs: this.arenaElapsedTimeMs,
+      snapshot: this.captureArenaSnapshot(),
+    });
+    gameState.persistToStorage();
+  }
+
+  private clampArenaX(value: number): number {
+    return Phaser.Math.Clamp(value, 0, this.arenaWidth);
+  }
+
+  private clampArenaY(value: number): number {
+    return Phaser.Math.Clamp(value, 0, this.arenaHeight);
   }
 
   private initialEnemySnapshot(spawnPoint: EnemySpawnPoint): EnemyArenaSnapshot {

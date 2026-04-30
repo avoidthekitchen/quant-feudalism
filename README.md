@@ -41,15 +41,25 @@ npm run build:itch
 npm run publish:itch
 ```
 
+To upload manually without butler, zip the `dist-itch/` folder:
+
+```sh
+cd dist-itch && zip -r ../quant-feudalism-itch.zip . && cd ..
+```
+
+Then upload the resulting `quant-feudalism-itch.zip` on the itch.io game edit page and set the kind to HTML/browser-playable.
+
 The itch.io publish target is
 `avoidthekitchen/quant-feudalism:html5`. After the first butler push, set the
 itch.io project kind to HTML/browser-playable on the game's edit page.
 
 ## Core Loop
 
-Start in the shop, buy Compute Credits with shop credits, deploy into the arena, defeat drones, and extract at the northern gate. Clearing all drones pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving drones void the clear bonus.
+Each save file now revolves around runs. A run starts in the shop, spans repeated deployments into the arena, and continues until the player manually ends it or their integrity collapses without enough Compute Credits left to buy a repair.
 
-The first arena round starts with `5` drones. Each cleared round increases future enemy count by `1`, up to the available spawn set. The HUD tracks completed rounds as Rounds Finished.
+Within a run, start in the shop, buy Compute Credits with shop credits, deploy into the arena, defeat drones, and extract at the northern gate. Clearing all drones pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving drones void the clear bonus.
+
+The first arena round starts with `5` drones. Each cleared round increases future enemy count by `1`, up to the available spawn set. `Rounds Finished` and `Kills` are tracked across the whole run, and the shop sidebar shows the top three runs ranked by rounds finished, with kills as a secondary stat.
 
 ## Resources
 
@@ -60,25 +70,35 @@ Compute has two linked limits:
 
 Every ability spends from both Compute Rate Limit and Compute Credits. If either resource is driven into debt, movement and vision degrade. Abilities are denied once the overdraw caps are reached.
 
-Shop credits are the between-run currency earned from arena results. They buy Compute Credit refills and permanent Compute Rate Limit upgrades in the shop.
+Shop credits are now run-scoped currency earned from arena results. They buy Compute Credit refills and Compute Rate Limit upgrades during the current run only.
 
 Integrity does not automatically refill after extraction. Repairs must be bought in the shop with Compute Credits:
 
 - Repair amount: `25` Integrity.
 - Repair cost: `180` Compute Credits.
 
-Quantum Tuner charges are bought in the Workshop and banked across runs:
+Quantum Tuner charges are bought in the Workshop and banked for the current run:
 
 - Starting charges: `1`.
 - Tuner cost: `250` Compute Credits.
 - Charge cap: `3`.
-- Charges persist until spent on Collapse.
+- Charges persist until spent on Collapse or until the run ends.
 
-Compute Rate Limit can be upgraded permanently:
+Compute Rate Limit can be upgraded during a run:
 
 - Upgrade amount: `+16` Compute Rate Limit.
 - First upgrade cost: `42` shop credits.
 - Each later upgrade costs `28` more shop credits than the previous one.
+
+## Run Lifecycle
+
+- A run can contain many arena deployments.
+- The `End Run` button in the shop lets the player archive the current run manually and restart from the base loadout.
+- A run ends automatically when `Integrity` is `0` and the player has fewer than `180` Compute Credits left, which means they cannot buy a repair.
+- When a run ends, the game shows a summary with rounds cleared, kills, Quantum Tuner charges used, and Compute Rate Limit upgrades gained during that run.
+- Starting a new run resets shop credits, Compute Credits, integrity, banked Quantum Tuners, rounds finished, kills, and Compute Rate Limit upgrades back to the opening values.
+- Reloading the page resumes the active run. If the player was mid-Arena, the game resumes from the latest saved arena checkpoint.
+- Only the current arena checkpoint persists across reloads. The full 15-second Collapse rewind history does not.
 
 ## Arena Controls
 
@@ -184,4 +204,4 @@ The extraction gate is in the north of the arena.
 - Decommissioning pays `0`.
 - Each cleared arena increments Rounds Finished.
 
-Compute Credits spent during the run are reported when returning to the shop. Integrity remains at its post-run value until repaired.
+Compute Credits spent during each arena deployment are reported when returning to the shop. Integrity remains at its post-deployment value until repaired, unless the run ends first because repairs can no longer be funded.

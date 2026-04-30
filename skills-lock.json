@@ -7,6 +7,12 @@
       "skillPath": "skills/actions-and-utilities/SKILL.md",
       "computedHash": "5ad13387e89837a86b22270b630d5b83affebcdaa106b4e780d0296b15e16be8"
     },
+    "agent-browser": {
+      "source": "vercel-labs/agent-browser",
+      "sourceType": "github",
+      "skillPath": "skills/agent-browser/SKILL.md",
+      "computedHash": "c19a532a3777698b80b35270939a1dc559da451381971b3e1e78174d1ab54863"
+    },
     "animations": {
       "source": "phaserjs/phaser",
       "sourceType": "github",
