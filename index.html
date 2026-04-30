@@ -29,37 +29,6 @@
           <div id="scoreboard-list" class="scoreboard-list"></div>
         </section>
 
-        <section class="panel log-panel">
-          <div class="panel-head">
-            <span>Operational Notes</span>
-          </div>
-          <p id="status-note" class="status-note"></p>
-          <p id="previous-note" class="report-note"></p>
-          <p id="older-note" class="report-note"></p>
-          <p id="report-note" class="report-note shop-only"></p>
-        </section>
-
-        <section class="panel shop-access-panel shop-only">
-          <div class="panel-head">
-            <span>Operations Access</span>
-            <span>Dispatch</span>
-          </div>
-          <div class="shop-access-actions">
-            <button id="deploy-button" class="deploy-button shop-open-button">
-              Enter Arena
-            </button>
-            <button id="workshop-open-button" class="deploy-button shop-open-button workshop-open-button">
-              Enter Workshop
-            </button>
-            <button id="shop-open-button" class="deploy-button shop-open-button">
-              Open Shop
-            </button>
-            <button id="end-run-button" class="deploy-button shop-open-button end-run-button">
-              End Run
-            </button>
-          </div>
-        </section>
-
         <section class="panel controls-panel arena-only">
           <div class="panel-head">
             <span>Combat Controls</span>
@@ -73,6 +42,16 @@
             <li><span>Extract</span><strong>F on Gate</strong></li>
           </ul>
         </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <span>Operational Notes</span>
+          </div>
+          <p id="status-note" class="status-note"></p>
+          <p id="previous-note" class="report-note"></p>
+          <p id="older-note" class="report-note"></p>
+          <p id="report-note" class="report-note shop-only"></p>
+        </section>
       </aside>
 
       <main class="stage">
@@ -83,6 +62,27 @@
           </div>
           <div id="game-root" class="game-root">
             <div id="arena-prompt" class="arena-prompt arena-only"></div>
+
+            <section class="panel shop-access-panel shop-only">
+              <div class="panel-head">
+                <span>Operations Access</span>
+                <span>Dispatch</span>
+              </div>
+              <div class="shop-access-actions">
+                <button id="deploy-button" class="deploy-button shop-open-button">
+                  Enter Arena
+                </button>
+                <button id="workshop-open-button" class="deploy-button shop-open-button workshop-open-button">
+                  Enter Workshop
+                </button>
+                <button id="shop-open-button" class="deploy-button shop-open-button">
+                  Open Shop
+                </button>
+                <button id="end-run-button" class="deploy-button shop-open-button end-run-button">
+                  End Run
+                </button>
+              </div>
+            </section>
 
             <section id="shop-modal" class="shop-modal-shell shop-only">
               <button
