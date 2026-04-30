@@ -9,6 +9,7 @@ export interface ArenaReport {
   kills: number;
   creditsEarned: number;
   allotmentSpent: number;
+  arenaTimeMs: number;
   note: string;
 }
 
@@ -28,6 +29,7 @@ export interface RunSummary {
   endReason: RunEndReason;
   roundsFinished: number;
   kills: number;
+  totalArenaTimeMs?: number;
   quantumTunersUsed: number;
   computeRateLimitUpgradesGained: number;
   endedAtRunId: number;
@@ -39,12 +41,14 @@ export interface ScoreboardEntry {
   runId: number;
   roundsFinished: number;
   kills: number;
+  totalArenaTimeMs?: number;
   active: boolean;
   endReason?: RunEndReason;
 }
 
 export interface SavedArenaResume {
   timelineTimeMs: number;
+  arenaElapsedTimeMs?: number;
   snapshot: ArenaSnapshot;
 }
 
@@ -62,6 +66,7 @@ export interface PersistedGameState {
   kills: number;
   runKills: number;
   roundsFinished: number;
+  totalArenaTimeMs?: number;
   computeRateLimitUpgrades: number;
   quantumTuners: number;
   quantumTunersUsedThisRun: number;
@@ -115,6 +120,7 @@ export class RunState extends EventTarget {
   kills = 0;
   runKills = 0;
   roundsFinished = 0;
+  totalArenaTimeMs = 0;
   computeRateLimitUpgrades = 0;
   quantumTuners = this.startingQuantumTuners;
   quantumTunersUsedThisRun = 0;
@@ -127,6 +133,7 @@ export class RunState extends EventTarget {
     kills: 0,
     creditsEarned: 0,
     allotmentSpent: 0,
+    arenaTimeMs: 0,
     note: "No arena deployment recorded yet.",
   };
   hudTimelineVersion = 0;
@@ -186,6 +193,7 @@ export class RunState extends EventTarget {
       endReason: reason,
       roundsFinished: this.roundsFinished,
       kills: this.getCurrentRunKills(),
+      totalArenaTimeMs: this.getCurrentRunTotalArenaTimeMs(),
       quantumTunersUsed: this.quantumTunersUsedThisRun,
       computeRateLimitUpgradesGained: this.computeRateLimitUpgradesThisRun,
       endedAtRunId: this.runId,
@@ -438,13 +446,15 @@ export class RunState extends EventTarget {
     this.emitChange();
   }
 
-  finishArena(status: ArenaOutcome, note: string): ArenaReport {
+  finishArena(status: ArenaOutcome, note: string, arenaTimeMs = 0): ArenaReport {
     if (status === "cleared") {
       this.roundsFinished += 1;
     }
 
     const arenaKills = this.kills;
     this.runKills += arenaKills;
+    const safeArenaTimeMs = Math.max(0, arenaTimeMs);
+    this.totalArenaTimeMs += safeArenaTimeMs;
 
     const creditsEarned =
       status === "cleared"
@@ -460,6 +470,7 @@ export class RunState extends EventTarget {
       kills: arenaKills,
       creditsEarned,
       allotmentSpent,
+      arenaTimeMs: safeArenaTimeMs,
       note,
     };
 
@@ -509,24 +520,38 @@ export class RunState extends EventTarget {
     return this.runKills + (this.sceneMode === "arena" ? this.kills : 0);
   }
 
+  private getCurrentRunTotalArenaTimeMs(): number {
+    const activeArenaTimeMs =
+      this.savedArenaResume?.arenaElapsedTimeMs ?? this.savedArenaResume?.timelineTimeMs ?? 0;
+    return this.totalArenaTimeMs + (this.sceneMode === "arena" ? activeArenaTimeMs : 0);
+  }
+
+  private compareScoreboardEntries(left: ScoreboardEntry, right: ScoreboardEntry): number {
+    if (right.roundsFinished !== left.roundsFinished) {
+      return right.roundsFinished - left.roundsFinished;
+    }
+    if (right.kills !== left.kills) {
+      return right.kills - left.kills;
+    }
+    const leftTimeMs = left.totalArenaTimeMs ?? 0;
+    const rightTimeMs = right.totalArenaTimeMs ?? 0;
+    if (leftTimeMs !== rightTimeMs) {
+      return leftTimeMs - rightTimeMs;
+    }
+    return right.runId - left.runId;
+  }
+
   getTopRuns(limit = 3): ScoreboardEntry[] {
     const archived: ScoreboardEntry[] = this.runHistory
       .map((entry) => ({
         runId: entry.runId,
         roundsFinished: entry.roundsFinished,
         kills: entry.kills,
+        totalArenaTimeMs: entry.totalArenaTimeMs ?? 0,
         active: false,
         endReason: entry.endReason,
       }))
-      .sort((left, right) => {
-        if (right.roundsFinished !== left.roundsFinished) {
-          return right.roundsFinished - left.roundsFinished;
-        }
-        if (right.kills !== left.kills) {
-          return right.kills - left.kills;
-        }
-        return right.runId - left.runId;
-      });
+      .sort((left, right) => this.compareScoreboardEntries(left, right));
 
     if (!this.runActive) {
       return archived.slice(0, limit);
@@ -536,10 +561,21 @@ export class RunState extends EventTarget {
       runId: this.runId,
       roundsFinished: this.roundsFinished,
       kills: this.getCurrentRunKills(),
+      totalArenaTimeMs: this.getCurrentRunTotalArenaTimeMs(),
       active: true,
     };
 
-    return [...archived.slice(0, limit - 1), activeEntry];
+    const ranked = [...archived, activeEntry].sort((left, right) =>
+      this.compareScoreboardEntries(left, right),
+    );
+    const topEntries = ranked.slice(0, limit);
+    if (topEntries.some((entry) => entry.active)) {
+      return topEntries;
+    }
+
+    return [...ranked.slice(0, Math.max(0, limit - 1)), activeEntry].sort((left, right) =>
+      this.compareScoreboardEntries(left, right),
+    );
   }
 
   getSavedArenaResume(): SavedArenaResume | null {
@@ -569,6 +605,7 @@ export class RunState extends EventTarget {
       kills: this.kills,
       runKills: this.runKills,
       roundsFinished: this.roundsFinished,
+      totalArenaTimeMs: this.totalArenaTimeMs,
       computeRateLimitUpgrades: this.computeRateLimitUpgrades,
       quantumTuners: this.quantumTuners,
       quantumTunersUsedThisRun: this.quantumTunersUsedThisRun,
@@ -606,6 +643,7 @@ export class RunState extends EventTarget {
     this.kills = raw.kills;
     this.runKills = raw.runKills;
     this.roundsFinished = raw.roundsFinished;
+    this.totalArenaTimeMs = raw.totalArenaTimeMs ?? 0;
     this.computeRateLimitUpgrades = raw.computeRateLimitUpgrades;
     this.quantumTuners = raw.quantumTuners;
     this.quantumTunersUsedThisRun = raw.quantumTunersUsedThisRun;
@@ -623,12 +661,16 @@ export class RunState extends EventTarget {
       ? structuredClone(raw.savedArenaResume)
       : null;
 
-    if (this.sceneMode === "arena" && !this.savedArenaResume) {
+    if (this.sceneMode === "arena") {
       this.sceneMode = "shop";
       this.kills = 0;
+      this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
+      this.computeRegenDelayRemainingMs = 0;
       this.arenaPrompt = "";
       this.extractionReady = false;
-      this.notice = "Arena restore record was invalid. Returned to procurement chamber.";
+      this.savedArenaResume = null;
+      this.notice =
+        "Session interrupted during deployment. Returned to procurement chamber with spent resources preserved.";
     }
 
     if (this.sceneMode === "shop") {
@@ -759,6 +801,7 @@ export class RunState extends EventTarget {
     this.kills = 0;
     this.runKills = 0;
     this.roundsFinished = 0;
+    this.totalArenaTimeMs = 0;
     this.computeRateLimitUpgrades = 0;
     this.quantumTuners = this.startingQuantumTuners;
     this.quantumTunersUsedThisRun = 0;
@@ -771,6 +814,7 @@ export class RunState extends EventTarget {
       kills: 0,
       creditsEarned: 0,
       allotmentSpent: 0,
+      arenaTimeMs: 0,
       note: "No arena deployment recorded yet.",
     };
     this.arenaEntryAllotment = this.allotmentCurrent;
@@ -816,6 +860,7 @@ function isArenaReport(value: unknown): value is ArenaReport {
     isFiniteNumber(value.kills) &&
     isFiniteNumber(value.creditsEarned) &&
     isFiniteNumber(value.allotmentSpent) &&
+    (value.arenaTimeMs === undefined || isFiniteNumber(value.arenaTimeMs)) &&
     typeof value.note === "string"
   );
 }
@@ -827,6 +872,7 @@ function isRunSummary(value: unknown): value is RunSummary {
     (value.endReason === "manual" || value.endReason === "bankrupt") &&
     isFiniteNumber(value.roundsFinished) &&
     isFiniteNumber(value.kills) &&
+    (value.totalArenaTimeMs === undefined || isFiniteNumber(value.totalArenaTimeMs)) &&
     isFiniteNumber(value.quantumTunersUsed) &&
     isFiniteNumber(value.computeRateLimitUpgradesGained) &&
     isFiniteNumber(value.endedAtRunId)
@@ -949,6 +995,7 @@ function isSavedArenaResume(value: unknown): value is SavedArenaResume {
   return (
     isRecord(value) &&
     isFiniteNumber(value.timelineTimeMs) &&
+    (value.arenaElapsedTimeMs === undefined || isFiniteNumber(value.arenaElapsedTimeMs)) &&
     isArenaSnapshotRecord(value.snapshot)
   );
 }
@@ -969,6 +1016,7 @@ function isPersistedGameState(value: unknown): value is PersistedGameState {
     isFiniteNumber(value.kills) &&
     isFiniteNumber(value.runKills) &&
     isFiniteNumber(value.roundsFinished) &&
+    (value.totalArenaTimeMs === undefined || isFiniteNumber(value.totalArenaTimeMs)) &&
     isFiniteNumber(value.computeRateLimitUpgrades) &&
     isFiniteNumber(value.quantumTuners) &&
     isFiniteNumber(value.quantumTunersUsedThisRun) &&

@@ -158,6 +158,7 @@ export class ArenaScene extends Phaser.Scene {
   private cacheWindowHints: Partial<Record<AbilityAction, CacheWindowHint>> = {};
   private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
   private timelineTimeMs = 0;
+  private arenaElapsedTimeMs = 0;
   private snapshotAccumulatorMs = 0;
   private snapshotHistory: TimedArenaSnapshot[] = [];
   private collapsePlayback?: CollapsePlayback;
@@ -206,6 +207,7 @@ export class ArenaScene extends Phaser.Scene {
     };
     this.transientVisuals.clear();
     this.timelineTimeMs = data?.resume?.timelineTimeMs ?? 0;
+    this.arenaElapsedTimeMs = data?.resume?.arenaElapsedTimeMs ?? 0;
     this.snapshotAccumulatorMs = 0;
     this.resumeSaveAccumulatorMs = 0;
     this.snapshotHistory = [];
@@ -367,6 +369,7 @@ export class ArenaScene extends Phaser.Scene {
 
     const dt = delta / 1000;
     this.timelineTimeMs += delta;
+    this.arenaElapsedTimeMs += delta;
     this.snapshotAccumulatorMs += delta;
     this.resumeSaveAccumulatorMs += delta;
     this.advanceAbilityCooldowns(delta);
@@ -397,7 +400,7 @@ export class ArenaScene extends Phaser.Scene {
       const note = this.arenaCleared
         ? "Arena pacified. Procurement rights renewed."
         : "Emergency extraction granted. The corporations keep the unused fear.";
-      gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note);
+      gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note, this.arenaElapsedTimeMs);
       this.scene.start(SCENES.shop);
       return;
     }
@@ -1336,6 +1339,7 @@ export class ArenaScene extends Phaser.Scene {
           gameState.finishArena(
             "decommissioned",
             "Integrity collapse. The corporations reclaimed your body from the arena floor.",
+            this.arenaElapsedTimeMs,
           );
           this.scene.start(SCENES.shop);
           return true;
@@ -2086,8 +2090,10 @@ export class ArenaScene extends Phaser.Scene {
 
     gameState.saveArenaResume({
       timelineTimeMs: this.timelineTimeMs,
+      arenaElapsedTimeMs: this.arenaElapsedTimeMs,
       snapshot: this.captureArenaSnapshot(),
     });
+    gameState.persistToStorage();
   }
 
   private clampArenaX(value: number): number {

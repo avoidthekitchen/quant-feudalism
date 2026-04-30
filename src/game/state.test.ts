@@ -249,9 +249,44 @@ test("scoreboard ranking sorts by rounds then kills then recency and includes th
       kills: entry.kills,
     })),
     [
+      { runId: 4, active: true, roundsFinished: 4, kills: 8 },
       { runId: 3, active: false, roundsFinished: 4, kills: 8 },
       { runId: 2, active: false, roundsFinished: 4, kills: 6 },
-      { runId: 4, active: true, roundsFinished: 4, kills: 8 },
+    ],
+  );
+});
+
+test("scoreboard uses lower total arena time as a tie breaker", () => {
+  const state = new RunState();
+
+  state.roundsFinished = 4;
+  state.runKills = 8;
+  state.totalArenaTimeMs = 18_000;
+  state.endRun("manual");
+
+  state.startNewRun();
+  state.roundsFinished = 4;
+  state.runKills = 8;
+  state.totalArenaTimeMs = 12_000;
+  state.endRun("manual");
+
+  state.startNewRun();
+  state.roundsFinished = 4;
+  state.runKills = 8;
+  state.totalArenaTimeMs = 15_000;
+
+  const leaderboard = state.getTopRuns(3);
+
+  assert.deepEqual(
+    leaderboard.map((entry) => ({
+      runId: entry.runId,
+      active: entry.active,
+      totalArenaTimeMs: entry.totalArenaTimeMs,
+    })),
+    [
+      { runId: 2, active: false, totalArenaTimeMs: 12_000 },
+      { runId: 3, active: true, totalArenaTimeMs: 15_000 },
+      { runId: 1, active: false, totalArenaTimeMs: 18_000 },
     ],
   );
 });
@@ -300,13 +335,12 @@ test("serialize and hydrate round-trip shop state and run history", () => {
   assert.deepEqual(restored.serialize(), source.serialize());
 });
 
-test("serialize and hydrate round-trip mid-arena resume checkpoints", () => {
+test("hydrate returns interrupted arena saves to shop with resource losses preserved", () => {
   const source = new RunState();
   source.roundsFinished = 3;
   source.runKills = 11;
   source.beginArena();
-  source.registerKill();
-  source.registerKill();
+  source.restoreArenaSnapshot(makeResumeSnapshot().snapshot.runState);
   source.setExtractionReady(true);
   source.saveArenaResume(makeResumeSnapshot());
 
@@ -316,11 +350,15 @@ test("serialize and hydrate round-trip mid-arena resume checkpoints", () => {
   assert.equal(restored.sceneMode, "shop");
   assert.equal(restored.getCurrentRunKills(), 11);
   assert.equal(restored.roundsFinished, 3);
+  assert.equal(restored.allotmentCurrent, 900);
+  assert.equal(restored.integrityCurrent, 76);
+  assert.equal(restored.kills, 0);
   assert.equal(restored.extractionReady, false);
   assert.equal(restored.getSavedArenaResume(), null);
+  assert.match(restored.notice, /interrupted during deployment/i);
 });
 
-test("hydrate tolerates saved arena state from before extractionReady was persisted", () => {
+test("hydrate ignores saved arena resume data instead of resuming mid-arena", () => {
   const source = new RunState();
   source.beginArena();
   source.saveArenaResume(makeResumeSnapshot());
@@ -342,12 +380,13 @@ test("hydrate tolerates saved arena state from before extractionReady was persis
   const restored = new RunState();
   restored.hydrate(legacyState);
 
-  assert.equal(restored.sceneMode, "arena");
+  assert.equal(restored.sceneMode, "shop");
   assert.equal(restored.extractionReady, false);
-  assert.equal(restored.getSavedArenaResume()?.snapshot.runState.extractionReady, undefined);
+  assert.equal(restored.getSavedArenaResume(), null);
+  assert.match(restored.notice, /interrupted during deployment/i);
 });
 
-test("hydrate preserves run data but returns to shop when the arena checkpoint is malformed", () => {
+test("hydrate ignores malformed arena checkpoint data and returns to shop", () => {
   const source = new RunState();
   source.beginArena();
   source.roundsFinished = 2;
@@ -376,7 +415,7 @@ test("hydrate preserves run data but returns to shop when the arena checkpoint i
   assert.equal(restored.roundsFinished, 2);
   assert.equal(restored.getCurrentRunKills(), 9);
   assert.equal(restored.getSavedArenaResume(), null);
-  assert.match(restored.notice, /restore record was invalid/i);
+  assert.match(restored.notice, /interrupted during deployment/i);
 });
 
 test("hydrate falls back to a fresh run for missing or outdated persisted data", () => {

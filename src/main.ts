@@ -66,6 +66,13 @@ function numberLabel(value: number): string {
   return value >= 0 ? Math.round(value).toString() : `-${Math.round(Math.abs(value))}`;
 }
 
+function timeLabel(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, "0")}s` : `${seconds}s`;
+}
+
 function setShopModalOpen(open: boolean): void {
   shopModalOpen = open;
   shopModal?.classList.toggle("open", open && gameState.sceneMode === "shop");
@@ -117,7 +124,9 @@ function renderScoreboard(): void {
     const kills = document.createElement("strong");
     kills.textContent = `${entry.kills} Kills`;
     const status = document.createElement("span");
-    status.textContent = entry.active ? "ACTIVE" : "Archived";
+    status.textContent = entry.active
+      ? `ACTIVE - ${timeLabel(entry.totalArenaTimeMs ?? 0)} Arena`
+      : `${timeLabel(entry.totalArenaTimeMs ?? 0)} Arena`;
     if (entry.active) {
       status.className = "scoreboard-active";
     }
@@ -346,6 +355,7 @@ deployButton?.addEventListener("click", () => {
   }
 
   gameState.beginArena();
+  gameState.persistToStorage();
   setShopModalOpen(false);
   setWorkshopModalOpen(false);
   game.scene.start(SCENES.arena);
