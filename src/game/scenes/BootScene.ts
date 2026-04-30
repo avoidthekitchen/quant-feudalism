@@ -10,9 +10,14 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     createGeneratedArt(this);
-    gameState.restoreForShop(
-      "Procurement chamber online. Buy Compute Credits or deploy into the arena.",
-    );
+    gameState.hydrateFromStorage();
+
+    if (gameState.sceneMode === "arena") {
+      gameState.restoreForShop(
+        "Session interrupted during deployment. Returned to procurement chamber.",
+      );
+    }
+
     this.scene.start(SCENES.shop);
   }
 }

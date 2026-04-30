@@ -21,6 +21,14 @@
           </p>
         </section>
 
+        <section class="panel scoreboard-panel shop-only">
+          <div class="panel-head">
+            <span>Run Ledger</span>
+            <span>Top 3</span>
+          </div>
+          <div id="scoreboard-list" class="scoreboard-list"></div>
+        </section>
+
         <section class="panel log-panel">
           <div class="panel-head">
             <span>Operational Notes</span>
@@ -45,6 +53,9 @@
             </button>
             <button id="shop-open-button" class="deploy-button shop-open-button">
               Open Shop
+            </button>
+            <button id="end-run-button" class="deploy-button shop-open-button end-run-button">
+              End Run
             </button>
           </div>
         </section>
@@ -162,6 +173,47 @@
                     <span>Quantum Tuner</span>
                     <strong id="quantum-tuner-label">Banked Collapse Charge (1/3)</strong>
                     <em id="quantum-tuner-cost-label">250 Compute Credits</em>
+                  </button>
+                </div>
+              </aside>
+            </section>
+
+            <section id="run-summary-modal" class="shop-modal-shell shop-only">
+              <div class="shop-backdrop run-summary-backdrop" aria-hidden="true"></div>
+
+              <aside class="panel shop-panel run-summary-panel">
+                <div class="panel-head shop-panel-head">
+                  <span>Run Summary</span>
+                  <span id="run-summary-reason">Archive</span>
+                </div>
+                <p id="run-summary-note" class="shop-copy">
+                  Contract ledger awaiting restart authorization.
+                </p>
+
+                <div class="run-summary-grid">
+                  <div class="summary-stat">
+                    <span>Rounds Cleared</span>
+                    <strong id="run-summary-rounds">0</strong>
+                  </div>
+                  <div class="summary-stat">
+                    <span>Kills</span>
+                    <strong id="run-summary-kills">0</strong>
+                  </div>
+                  <div class="summary-stat">
+                    <span>Quantum Tuners Used</span>
+                    <strong id="run-summary-tuners">0</strong>
+                  </div>
+                  <div class="summary-stat">
+                    <span>Enhancements</span>
+                    <strong id="run-summary-enhancements">None</strong>
+                  </div>
+                </div>
+
+                <div class="shop-actions">
+                  <button id="start-new-run-button" class="shop-button">
+                    <span>Contract Renewal</span>
+                    <strong>Start New Run</strong>
+                    <em>Reset to the base procurement loadout</em>
                   </button>
                 </div>
               </aside>
