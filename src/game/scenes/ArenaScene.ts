@@ -1,6 +1,17 @@
 import * as Phaser from "phaser";
 import { SCENES } from "../constants";
 import {
+  ABILITY_COOLDOWNS_MS,
+  calculateRangedSiphonRefund,
+  getCachedAbilityCost,
+  getCacheWindowRatio,
+  getCooldownProgress,
+  isCacheWindowOpen,
+  RANGED_PULL_FORCE,
+  RANGED_PULL_RADIUS,
+  type CombatAbilityAction,
+} from "../combat";
+import {
   ACTOR_ART_SCALE,
   DRONE_SHEET_KEY,
   PLAYER_SHEET_KEY,
@@ -28,7 +39,7 @@ import {
 } from "../quantum-tuner";
 import { gameState, type SavedArenaResume } from "../state";
 
-type AbilityAction = "dash" | "melee" | "ranged";
+type AbilityAction = CombatAbilityAction;
 
 type AbilityAttempt = {
   allowed: boolean;
@@ -37,8 +48,11 @@ type AbilityAttempt = {
   cost: number;
 };
 
-type CacheWindowHint = {
-  ring: Phaser.GameObjects.Arc;
+type CooldownIndicator = {
+  container: Phaser.GameObjects.Container;
+  progress: Phaser.GameObjects.Graphics;
+  cacheZone: Phaser.GameObjects.Graphics;
+  missRing: Phaser.GameObjects.Arc;
   label: Phaser.GameObjects.Text;
 };
 
@@ -95,16 +109,13 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly playerBaseAcceleration = 510;
   private static readonly playerBaseDeceleration = 660;
   private static readonly playerBaseDashSpeed = 520;
-  private static readonly dashCooldownMs = 620;
-  private static readonly meleeCooldownMs = 230;
-  private static readonly rangedCooldownMs = 520;
   private static readonly meleeRange = 166;
   private static readonly meleeStunDuration = 0.28;
   private static readonly playerDashDuration = 0.16;
   private static readonly playerDashInvulnerabilityDuration = 0.24;
-  private static readonly rangedMovementPauseDuration = 0.2;
-  private static readonly cacheDiscountWindowMs = 90;
-  private static readonly cacheDiscountMultiplier = 0.1;
+  private static readonly meleeAttackLockDuration = 0.26;
+  private static readonly rangedMovementPauseDuration = 0.32;
+  private static readonly rangedAttackAnimationDuration = 0.28;
   private static readonly droneChaseSpeed = 132;
   private static readonly droneCloseSpeed = 68;
   private static readonly droneLungeMinRange = 72;
@@ -156,7 +167,17 @@ export class ArenaScene extends Phaser.Scene {
     melee: false,
     ranged: false,
   };
-  private cacheWindowHints: Partial<Record<AbilityAction, CacheWindowHint>> = {};
+  private cooldownIndicators: Partial<Record<AbilityAction, CooldownIndicator>> = {};
+  private cacheWindowActive: Record<AbilityAction, boolean> = {
+    dash: false,
+    melee: false,
+    ranged: false,
+  };
+  private cacheWindowPulseUntilMs: Record<AbilityAction, number> = {
+    dash: 0,
+    melee: 0,
+    ranged: 0,
+  };
   private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
   private timelineTimeMs = 0;
   private arenaElapsedTimeMs = 0;
@@ -208,6 +229,16 @@ export class ArenaScene extends Phaser.Scene {
       melee: false,
       ranged: false,
     };
+    this.cacheWindowActive = {
+      dash: false,
+      melee: false,
+      ranged: false,
+    };
+    this.cacheWindowPulseUntilMs = {
+      dash: 0,
+      melee: 0,
+      ranged: 0,
+    };
     this.transientVisuals.clear();
     this.timelineTimeMs = data?.resume?.timelineTimeMs ?? 0;
     this.arenaElapsedTimeMs = data?.resume?.arenaElapsedTimeMs ?? 0;
@@ -217,11 +248,7 @@ export class ArenaScene extends Phaser.Scene {
     this.collapsePlayback = undefined;
     this.ghostReplay = undefined;
     this.currentGhostAnim = "";
-    Object.values(this.cacheWindowHints).forEach((hint) => {
-      hint.ring.destroy();
-      hint.label.destroy();
-    });
-    this.cacheWindowHints = {};
+    this.destroyCooldownIndicators();
 
     this.cameras.main.setBackgroundColor(0x070b12);
     this.physics.world.setBounds(0, 0, this.arenaWidth, this.arenaHeight);
@@ -317,6 +344,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.enemyCountLabel.setScrollFactor(0);
     this.enemyCountLabel.setDepth(9999);
+    this.createCooldownIndicators();
 
     if (data?.resume) {
       try {
@@ -337,6 +365,7 @@ export class ArenaScene extends Phaser.Scene {
 
     this.updateVisuals();
     this.updateExtractionPrompt();
+    this.updateCooldownIndicators();
     this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
     gameState.setExtractionReady(this.arenaCleared);
     this.saveResumeCheckpoint();
@@ -352,6 +381,7 @@ export class ArenaScene extends Phaser.Scene {
       this.saveResumeCheckpoint();
       this.input.off("pointerdown", this.handlePointerDown, this);
       this.clearTransientVisuals();
+      this.destroyCooldownIndicators();
       this.destroyAllProjectiles();
       this.destroyAllDrones();
       if (typeof window !== "undefined") {
@@ -397,7 +427,7 @@ export class ArenaScene extends Phaser.Scene {
     this.updateProjectiles(dt);
     this.updateVisuals();
     this.updateExtractionPrompt();
-    this.updateCacheWindowVisuals();
+    this.updateCooldownIndicators();
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.F) && this.canExtract()) {
       const note = this.arenaCleared
@@ -640,7 +670,20 @@ export class ArenaScene extends Phaser.Scene {
       this.tryDash(input, pointer);
     }
 
-    if (this.rangedMovementPauseTimer > 0) {
+    if (this.dashTimer > 0) {
+      this.dashTimer = Math.max(0, this.dashTimer - dt);
+      const dashSpeed =
+        ArenaScene.playerBaseDashSpeed *
+        ArenaScene.combatSpeedMultiplier *
+        gameState.getMovementMultiplier();
+      this.velocity.copy(this.dashDirection).scale(dashSpeed);
+      this.player.setVelocity(this.velocity.x, this.velocity.y);
+      this.updatePlayerSprite(input, pointer, "dash");
+      this.updatePlayerShadow();
+      return;
+    }
+
+    if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0) {
       this.rangedMovementPauseTimer = Math.max(0, this.rangedMovementPauseTimer - dt);
       const brake =
         ArenaScene.playerBaseDeceleration *
@@ -651,19 +694,6 @@ export class ArenaScene extends Phaser.Scene {
       this.velocity.y = this.moveTowards(this.velocity.y, 0, brake);
       this.player.setVelocity(this.velocity.x, this.velocity.y);
       this.updatePlayerSprite(input, pointer, "attack");
-      this.updatePlayerShadow();
-      return;
-    }
-
-    if (this.dashTimer > 0) {
-      this.dashTimer = Math.max(0, this.dashTimer - dt);
-      const dashSpeed =
-        ArenaScene.playerBaseDashSpeed *
-        ArenaScene.combatSpeedMultiplier *
-        gameState.getMovementMultiplier();
-      this.velocity.copy(this.dashDirection).scale(dashSpeed);
-      this.player.setVelocity(this.velocity.x, this.velocity.y);
-      this.updatePlayerSprite(input, pointer, "dash");
       this.updatePlayerShadow();
       return;
     }
@@ -784,7 +814,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryDash(input: Phaser.Math.Vector2, pointer: Phaser.Input.Pointer): void {
-    if (this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
+    if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
       return;
     }
 
@@ -851,16 +881,19 @@ export class ArenaScene extends Phaser.Scene {
     const remainingMs = this.cooldownRemainingMs[action];
 
     if (
-      remainingMs > 0 &&
-      remainingMs <= ArenaScene.cacheDiscountWindowMs &&
-      !this.cacheDiscountBlocked[action] &&
-      this.canUseCacheDiscount()
+      isCacheWindowOpen(
+        action,
+        remainingMs,
+        this.cooldownForAction(action),
+        this.cacheDiscountBlocked[action],
+        this.canUseCacheDiscount(),
+      )
     ) {
       return {
         allowed: true,
         baseCost,
         cached: true,
-        cost: Math.max(1, Math.ceil(baseCost * ArenaScene.cacheDiscountMultiplier)),
+        cost: getCachedAbilityCost(baseCost),
       };
     }
 
@@ -868,7 +901,6 @@ export class ArenaScene extends Phaser.Scene {
       if (!this.cacheDiscountBlocked[action]) {
         this.cacheDiscountBlocked[action] = true;
         this.createCacheInvalidatedVisual(action);
-        this.destroyCacheWindowHint(action);
       }
 
       return {
@@ -901,8 +933,6 @@ export class ArenaScene extends Phaser.Scene {
     if (!attempt.cached) {
       return;
     }
-
-    this.destroyCacheWindowHint(action);
 
     const ring = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 4, 22, 0x60ffd3, 0.18));
     ring.setStrokeStyle(3, 0xffcf66, 0.8);
@@ -968,96 +998,196 @@ export class ArenaScene extends Phaser.Scene {
     });
   }
 
-  private updateCacheWindowVisuals(): void {
-    (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
-      if (this.isCacheWindowOpen(action)) {
-        this.showCacheWindowHint(action);
-        return;
-      }
-
-      this.destroyCacheWindowHint(action);
-    });
-  }
-
-  private isCacheWindowOpen(action: AbilityAction): boolean {
-    if (!this.canUseCacheDiscount() || this.cacheDiscountBlocked[action]) {
-      return false;
-    }
-
-    const remainingMs = this.cooldownRemainingMs[action];
-    return remainingMs > 0 && remainingMs <= ArenaScene.cacheDiscountWindowMs;
-  }
-
   private canUseCacheDiscount(): boolean {
     return gameState.computeCurrent >= 0 && gameState.allotmentCurrent > 0;
   }
 
-  private showCacheWindowHint(action: AbilityAction): void {
-    const offset = this.cacheHintOffset(action);
-    const existing = this.cacheWindowHints[action];
+  private createCooldownIndicators(): void {
+    this.destroyCooldownIndicators();
 
-    if (existing) {
-      existing.ring.setPosition(this.player.x + offset.x, this.player.y + offset.y);
-      existing.label.setPosition(this.player.x + offset.x, this.player.y + offset.y - 26);
-      existing.ring.setDepth(this.player.y + 36);
-      existing.label.setDepth(this.player.y + 37);
-      return;
-    }
+    (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
+      const container = this.add.container(0, 0);
+      const backdrop = this.add.circle(0, 0, 17, 0x051017, 0.56);
+      backdrop.setStrokeStyle(2, 0x33515d, 0.9);
 
-    const ring = this.add.circle(this.player.x + offset.x, this.player.y + offset.y, 13, 0xffcf66, 0.12);
-    ring.setStrokeStyle(2, 0xffcf66, 0.9);
-    ring.setDepth(this.player.y + 36);
+      const cacheZone = this.add.graphics();
+      const progress = this.add.graphics();
+      const missRing = this.add.circle(0, 0, 19);
+      missRing.setStrokeStyle(2, 0xff4fa4, 0.75);
+      missRing.setVisible(false);
 
-    const label = this.add.text(
-      this.player.x + offset.x,
-      this.player.y + offset.y - 26,
-      `${this.abilityLabel(action)} READY`,
-      {
+      const label = this.add.text(0, 0, this.abilityShortLabel(action), {
         fontFamily: "Azeret Mono, monospace",
-        fontSize: "9px",
-        color: "#fff7c2",
-        backgroundColor: "rgba(13, 20, 25, 0.72)",
-        padding: { left: 5, right: 5, top: 2, bottom: 2 },
-      },
-    );
-    label.setOrigin(0.5);
-    label.setDepth(this.player.y + 37);
+        fontSize: "10px",
+        color: "#dffcf3",
+      });
+      label.setOrigin(0.5);
 
-    this.tweens.add({
-      targets: ring,
-      scale: { from: 0.86, to: 1.18 },
-      alpha: { from: 0.42, to: 0.88 },
-      duration: 120,
-      yoyo: true,
-      repeat: -1,
-      ease: "Sine.easeInOut",
+      container.add([backdrop, cacheZone, progress, missRing, label]);
+      this.cooldownIndicators[action] = {
+        container,
+        progress,
+        cacheZone,
+        missRing,
+        label,
+      };
     });
-
-    this.cacheWindowHints[action] = { ring, label };
   }
 
-  private destroyCacheWindowHint(action: AbilityAction): void {
-    const hint = this.cacheWindowHints[action];
-    if (!hint) {
+  private updateCooldownIndicators(): void {
+    const canUseDiscount = this.canUseCacheDiscount();
+    const pulse = (Math.sin(this.timelineTimeMs * 0.012) + 1) * 0.5;
+
+    (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
+      const indicator = this.cooldownIndicators[action];
+      if (!indicator) {
+        return;
+      }
+
+      const offset = this.cooldownIndicatorOffset(action);
+      indicator.container.setPosition(this.player.x + offset.x, this.player.y + offset.y);
+      indicator.container.setDepth(this.player.y + 40);
+
+      const cooldownMs = this.cooldownForAction(action);
+      const remainingMs = this.cooldownRemainingMs[action];
+      const progress = getCooldownProgress(cooldownMs, remainingMs);
+      const cacheRatio = getCacheWindowRatio(action, cooldownMs);
+      const cacheStartProgress = 1 - cacheRatio;
+      const ready = remainingMs <= 0;
+      indicator.container.setVisible(!ready);
+      if (ready) {
+        this.cacheWindowActive[action] = false;
+        indicator.progress.clear();
+        indicator.cacheZone.clear();
+        indicator.missRing.setVisible(false);
+        return;
+      }
+      const cacheActive = isCacheWindowOpen(
+        action,
+        remainingMs,
+        cooldownMs,
+        this.cacheDiscountBlocked[action],
+        canUseDiscount,
+      );
+      const blocked = this.cacheDiscountBlocked[action] && remainingMs > 0;
+      const justOpened = cacheActive && !this.cacheWindowActive[action];
+      if (justOpened) {
+        this.cacheWindowPulseUntilMs[action] = this.timelineTimeMs + 220;
+        this.playCacheWindowTick(action);
+      }
+      this.cacheWindowActive[action] = cacheActive;
+      const entryPulseProgress = Phaser.Math.Clamp(
+        (this.cacheWindowPulseUntilMs[action] - this.timelineTimeMs) / 220,
+        0,
+        1,
+      );
+      const entryPulseStrength = Phaser.Math.Easing.Cubic.Out(entryPulseProgress);
+      const activePulseAlpha = cacheActive ? 0.86 + pulse * 0.12 : 0.38;
+      const cacheAlpha = blocked
+        ? 0.88
+        : ready
+          ? 0.28
+          : Math.max(activePulseAlpha, 0.48 + entryPulseStrength * 0.44);
+      const cacheThickness = blocked ? 4 : cacheActive ? 5 + entryPulseStrength * 2 : 4;
+      const progressThickness = ready ? 5 : 3 + entryPulseStrength;
+
+      this.drawCooldownArc(
+        indicator.cacheZone,
+        cacheStartProgress,
+        1,
+        blocked ? 0xff4fa4 : 0xffcf66,
+        cacheAlpha,
+        cacheThickness,
+      );
+      this.drawCooldownArc(
+        indicator.progress,
+        0,
+        ready ? 1 : progress,
+        ready ? 0x60ffd3 : progress >= cacheStartProgress ? 0xfff1a8 : 0x60ffd3,
+        ready ? 0.96 : 0.88 + entryPulseStrength * 0.08,
+        progressThickness,
+      );
+
+      indicator.missRing.setVisible(blocked);
+      indicator.missRing.setAlpha(0.38 + pulse * 0.24);
+      indicator.label.setColor(ready ? "#fff8c8" : blocked ? "#ffd7e8" : cacheActive ? "#fff1b6" : "#dffcf3");
+      indicator.label.setAlpha(ready ? 1 : 0.86);
+      indicator.label.setScale(ready ? 1.05 : 1 + entryPulseStrength * 0.12);
+      indicator.container.setScale(1 + entryPulseStrength * 0.08);
+    });
+  }
+
+  private destroyCooldownIndicators(): void {
+    Object.values(this.cooldownIndicators).forEach((indicator) => {
+      indicator.container.destroy();
+    });
+    this.cooldownIndicators = {};
+  }
+
+  private drawCooldownArc(
+    graphics: Phaser.GameObjects.Graphics,
+    fromProgress: number,
+    toProgress: number,
+    color: number,
+    alpha: number,
+    thickness: number,
+  ): void {
+    graphics.clear();
+
+    if (toProgress <= fromProgress) {
       return;
     }
 
-    this.tweens.killTweensOf(hint.ring);
-    hint.ring.destroy();
-    hint.label.destroy();
-    delete this.cacheWindowHints[action];
+    const radius = 17;
+    const startAngle = -Math.PI / 2 + Math.PI * 2 * Phaser.Math.Clamp(fromProgress, 0, 1);
+    const endAngle = -Math.PI / 2 + Math.PI * 2 * Phaser.Math.Clamp(toProgress, 0, 1);
+    graphics.lineStyle(thickness, color, alpha);
+    graphics.beginPath();
+    graphics.arc(0, 0, radius, startAngle, endAngle, false);
+    graphics.strokePath();
+  }
+
+  private playCacheWindowTick(action: AbilityAction): void {
+    const soundManager = this.sound as Phaser.Sound.WebAudioSoundManager;
+    if (!("context" in soundManager) || soundManager.locked) {
+      return;
+    }
+
+    const context = soundManager.context;
+    if (!context || context.state !== "running") {
+      return;
+    }
+
+    const frequency = action === "melee" ? 1240 : action === "dash" ? 1120 : 1360;
+    const startTime = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+    oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.92, startTime + 0.06);
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(0.028, startTime + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.085);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startTime);
+    oscillator.stop(startTime + 0.09);
   }
 
   private cooldownForAction(action: AbilityAction): number {
-    if (action === "dash") return ArenaScene.dashCooldownMs;
-    if (action === "melee") return ArenaScene.meleeCooldownMs;
-    return ArenaScene.rangedCooldownMs;
+    return ABILITY_COOLDOWNS_MS[action];
   }
 
-  private cacheHintOffset(action: AbilityAction): Phaser.Math.Vector2 {
+  private cooldownIndicatorOffset(action: AbilityAction): Phaser.Math.Vector2 {
     if (action === "dash") return new Phaser.Math.Vector2(-44, -46);
     if (action === "melee") return new Phaser.Math.Vector2(0, -62);
     return new Phaser.Math.Vector2(44, -46);
+  }
+
+  private abilityShortLabel(action: AbilityAction): string {
+    if (action === "dash") return "D";
+    if (action === "melee") return "M";
+    return "R";
   }
 
   private abilityLabel(action: AbilityAction): string {
@@ -1078,6 +1208,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryMelee(targetX: number, targetY: number): void {
+    if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
+      return;
+    }
+
     const attempt = this.resolveAbilityAttempt("melee", gameState.meleeCost);
     if (!attempt.allowed) {
       return;
@@ -1100,7 +1234,7 @@ export class ArenaScene extends Phaser.Scene {
       this.playerFacing,
     );
     const swingAngle = this.angleForDirection(this.playerFacing);
-    this.playerAttackTimer = 0.14;
+    this.playerAttackTimer = ArenaScene.meleeAttackLockDuration;
     this.playPlayerAnimation("attack", this.playerFacing);
     const slash = this.trackTransientVisual(this.add.image(
       this.player.x + Math.cos(swingAngle) * 54,
@@ -1156,7 +1290,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private tryRanged(targetX: number, targetY: number): void {
-    if (this.dashTimer > 0 || this.rangedMovementPauseTimer > 0) {
+    if (this.playerAttackTimer > 0 || this.dashTimer > 0 || this.rangedMovementPauseTimer > 0) {
       return;
     }
 
@@ -1185,7 +1319,7 @@ export class ArenaScene extends Phaser.Scene {
       new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y),
       this.playerFacing,
     );
-    this.playerAttackTimer = 0.16;
+    this.playerAttackTimer = ArenaScene.rangedAttackAnimationDuration;
     this.playPlayerAnimation("attack", this.playerFacing);
     const sprite = this.physics.add.image(
       this.player.x + Math.cos(angle) * 28,
@@ -1241,6 +1375,88 @@ export class ArenaScene extends Phaser.Scene {
       this.drones = this.drones.filter((candidate) => candidate !== drone);
       gameState.registerKill();
     }
+  }
+
+  private applyRangedSiphonImpact(impactX: number, impactY: number, impacted: EnemyUnit): void {
+    const affected = this.drones.filter((drone) => {
+      const distance = Phaser.Math.Distance.Between(impactX, impactY, drone.sprite.x, drone.sprite.y);
+      return distance <= RANGED_PULL_RADIUS;
+    });
+
+    affected.forEach((drone) => {
+      if (drone !== impacted) {
+        this.pullDroneTowardPoint(drone, impactX, impactY, RANGED_PULL_FORCE);
+      }
+    });
+
+    const refunded = gameState.refundAllotment(calculateRangedSiphonRefund(affected.length));
+    this.createRangedSiphonVisual(impactX, impactY, refunded);
+    if (refunded > 0) {
+      gameState.setNotice(`Ranged siphon +${refunded} Compute Credits.`);
+    }
+  }
+
+  private pullDroneTowardPoint(drone: EnemyUnit, targetX: number, targetY: number, force: number): void {
+    const body = drone.sprite.body as Phaser.Physics.Arcade.Body;
+    const toImpact = new Phaser.Math.Vector2(targetX - drone.sprite.x, targetY - drone.sprite.y);
+    const distance = toImpact.length();
+    if (distance <= 0.001) {
+      return;
+    }
+
+    const pull = toImpact.scale(1 / distance).scale(force);
+    body.velocity.x += pull.x;
+    body.velocity.y += pull.y;
+  }
+
+  private createRangedSiphonVisual(impactX: number, impactY: number, refunded: number): void {
+    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, 20, 0x60ffd3, 0.08));
+    pulse.setStrokeStyle(2, 0x60ffd3, 0.65);
+    pulse.setDepth(impactY + 18);
+
+    const inner = this.trackTransientVisual(this.add.circle(impactX, impactY, 8, 0xe7fff8, 0.12));
+    inner.setStrokeStyle(1, 0xe7fff8, 0.42);
+    inner.setDepth(impactY + 19);
+
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      scale: { from: 0.75, to: 1.35 },
+      duration: 220,
+      ease: "Sine.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
+    this.tweens.add({
+      targets: inner,
+      alpha: 0,
+      scale: { from: 1.1, to: 0.55 },
+      duration: 220,
+      ease: "Sine.easeOut",
+      onComplete: () => inner.destroy(),
+    });
+
+    if (refunded <= 0) {
+      return;
+    }
+
+    const label = this.trackTransientVisual(this.add.text(impactX, impactY - 24, `+${refunded} CC`, {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "10px",
+      color: "#cffff6",
+      backgroundColor: "rgba(7, 16, 23, 0.72)",
+      padding: { left: 5, right: 5, top: 2, bottom: 2 },
+    }));
+    label.setOrigin(0.5);
+    label.setDepth(impactY + 20);
+
+    this.tweens.add({
+      targets: label,
+      alpha: 0,
+      y: label.y - 18,
+      duration: 420,
+      ease: "Sine.easeOut",
+      onComplete: () => label.destroy(),
+    });
   }
 
   private updateDrones(dt: number): boolean {
@@ -1443,6 +1659,9 @@ export class ArenaScene extends Phaser.Scene {
 
       if (impacted) {
         const angle = Math.atan2(projectile.velocity.y, projectile.velocity.x);
+        const impactX = projectile.sprite.x;
+        const impactY = projectile.sprite.y;
+        this.applyRangedSiphonImpact(impactX, impactY, impacted);
         this.hitDrone(impacted, 31, angle, 180);
         projectile.sprite.destroy();
         return;
@@ -1933,9 +2152,6 @@ export class ArenaScene extends Phaser.Scene {
   ): void {
     const { emitRunState = true, bumpHudTimeline = emitRunState } = options;
     this.clearTransientVisuals();
-    (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
-      this.destroyCacheWindowHint(action);
-    });
     this.destroyAllProjectiles();
     this.destroyAllDrones();
 
@@ -1985,7 +2201,7 @@ export class ArenaScene extends Phaser.Scene {
 
     this.updateVisuals();
     this.updateExtractionPrompt();
-    this.updateCacheWindowVisuals();
+    this.updateCooldownIndicators();
   }
 
   private syncPlayerPresentation(): void {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ABILITY_COOLDOWNS_MS } from "./combat.ts";
 import {
   extractHistoryRange,
   getCollapseAvailability,
@@ -32,7 +33,7 @@ function createSnapshot(seed: number, overrides: Partial<ArenaSnapshot> = {}): A
       dashInvulnerabilityTimer: 0.24,
       rangedMovementPauseTimer: 0,
       playerAttackTimer: 0,
-      cooldowns: { dash: 620, melee: 230, ranged: 520 },
+      cooldowns: ABILITY_COOLDOWNS_MS,
       cacheDiscountBlocked: { dash: false, melee: false, ranged: false },
     },
     arenaCleared: false,

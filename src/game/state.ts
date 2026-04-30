@@ -102,8 +102,8 @@ export class RunState extends EventTarget {
   readonly computeRateLimitUpgradeAmount = 16;
   readonly quantumTunerCap = 3;
   readonly quantumTunerCost = 250;
-  readonly startingCredits = 92;
-  readonly startingAllotment = 1640;
+  readonly startingCredits = 30;
+  readonly startingAllotment = 1360;
   readonly startingQuantumTuners = 1;
   readonly defaultNotice =
     "Procurement chamber online. Buy Compute Credits or deploy into the arena.";
@@ -401,6 +401,18 @@ export class RunState extends EventTarget {
     this.computeRegenDelayRemainingMs = this.computeRegenDelayMs;
     this.emitChange();
     return true;
+  }
+
+  refundAllotment(amount: number): number {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    if (safeAmount <= 0 || this.allotmentCurrent >= this.allotmentMax) {
+      return 0;
+    }
+
+    const refunded = Math.min(safeAmount, this.allotmentMax - this.allotmentCurrent);
+    this.allotmentCurrent += refunded;
+    this.emitChange();
+    return refunded;
   }
 
   regenerate(deltaMs: number): void {

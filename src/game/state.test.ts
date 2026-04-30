@@ -58,6 +58,34 @@ test("buyQuantumTuner spends compute credits and clamps current compute", () => 
   assert.equal(state.computeCurrent, 270);
 });
 
+test("refundAllotment restores only compute credits and preserves rate-limit recovery state", () => {
+  const state = new RunState();
+  state.beginArena();
+  assert.equal(state.spend(40), true);
+
+  const regenDelayBeforeRefund = state.createArenaSnapshot().computeRegenDelayRemainingMs;
+  const computeBeforeRefund = state.computeCurrent;
+  const refunded = state.refundAllotment(18);
+
+  assert.equal(refunded, 18);
+  assert.equal(state.computeCurrent, computeBeforeRefund);
+  assert.equal(state.allotmentCurrent, state.startingAllotment - 22);
+  assert.equal(state.createArenaSnapshot().computeRegenDelayRemainingMs, regenDelayBeforeRefund);
+});
+
+test("refundAllotment clamps to max compute credits without restoring rate limit", () => {
+  const state = new RunState();
+  state.beginArena();
+  state.allotmentCurrent = state.allotmentMax - 5;
+  state.computeCurrent = 12;
+
+  const refunded = state.refundAllotment(18);
+
+  assert.equal(refunded, 5);
+  assert.equal(state.allotmentCurrent, state.allotmentMax);
+  assert.equal(state.computeCurrent, 12);
+});
+
 test("buyQuantumTuner fails when the rack is already full", () => {
   const state = new RunState();
   state.quantumTuners = state.quantumTunerCap;
@@ -147,6 +175,20 @@ test("startNewRun resets progression to the base procurement loadout", () => {
   assert.equal(state.computeRateLimitUpgrades, 0);
   assert.equal(state.quantumTuners, state.startingQuantumTuners);
   assert.equal(state.runHistory.length, 1);
+});
+
+test("new runs start with the tighter compute credit allotment", () => {
+  const state = new RunState();
+
+  assert.equal(state.startingAllotment, 1360);
+  assert.equal(state.allotmentCurrent, 1360);
+});
+
+test("new runs start with the reduced shop credit buffer", () => {
+  const state = new RunState();
+
+  assert.equal(state.startingCredits, 30);
+  assert.equal(state.credits, 30);
 });
 
 test("multiple arena deployments accumulate run rounds and kills", () => {

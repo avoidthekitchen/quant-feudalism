@@ -66,11 +66,15 @@ The first arena round starts with `5` drones. Each cleared round increases futur
 Compute has two linked limits:
 
 - Compute Rate Limit is the regenerating short-term meter. It starts at `96`, regenerates after a `720ms` delay, and regenerates at `13` per second.
-- Compute Credits are the purchased long-term reserve. They start at `1640`, cap at `2800`, and are spent alongside the rate limit.
+- Compute Credits are the purchased long-term reserve. They start at `1360`, cap at `2800`, and are spent alongside the rate limit.
 
 Every ability spends from both Compute Rate Limit and Compute Credits. If either resource is driven into debt, movement and vision degrade. Abilities are denied once the overdraw caps are reached.
 
 Shop credits are now run-scoped currency earned from arena results. They buy Compute Credit refills and Compute Rate Limit upgrades during the current run only.
+
+- Minor Refill: `+720` Compute Credits for `20` shop credits.
+- Corporate Slice: `+1440` Compute Credits for `38` shop credits.
+- Dynasty Reserve: `+2400` Compute Credits for `58` shop credits.
 
 Integrity does not automatically refill after extraction. Repairs must be bought in the shop with Compute Credits:
 
@@ -123,7 +127,7 @@ The player uses `W A S D` movement and aims attacks with the pointer.
 Press `Space` to dash.
 
 - Cost: `24` Compute.
-- Cooldown: `620ms`.
+- Cooldown: `700ms`.
 - Dash speed: `780 px/s` before resource throttling.
 - Dash duration: `160ms`.
 - Invulnerability: `240ms`.
@@ -134,36 +138,42 @@ Press `Space` to dash.
 Left click to melee toward the pointer.
 
 - Cost: `18` Compute.
-- Cooldown: `230ms`.
+- Cooldown: `700ms`.
 - Damage: `24`.
 - Reach: `166 px` in a forward arc.
 - Stun: `280ms`.
-- Melee recovery is intentionally short so dash-in, slash, dash-out timing feels responsive.
+- Melee now commits the player to a longer `260ms` attack animation lock so each swing feels less spammable and closer in weight to ranged.
 
 ## Ranged
 
 Right click to fire a ranged bolt toward the pointer.
 
 - Cost: `40` Compute.
-- Cooldown: `520ms`.
+- Cooldown: `820ms`.
 - Damage: `31`.
 - Projectile speed: `490 px/s`.
 - Projectile lifetime: `1.2s`.
-- Firing causes a `200ms` movement pause, so ranged attacks require deliberate commitment instead of being fully mobile.
+- Firing causes a `320ms` movement pause and a longer `280ms` attack animation, so ranged attacks require deliberate commitment instead of being fully mobile.
+- On direct hit, the bolt creates a `112 px` pull splash that drags nearby enemies inward without dealing extra damage or stun.
+- Each enemy affected by that splash refunds `6` Compute Credits, up to `18` per shot.
+- The siphon refund restores `Compute Credits` only. It does not restore `Compute Rate Limit`, and it does not shorten the rate-limit recovery delay.
 
 ## Cache Discount Timing
 
 Dash, melee, and ranged each have a repeated-action cache window.
 
-If the same action is repeated during the final `90ms` before its cooldown completes, it costs one tenth of its normal Compute cost:
+If the same action is repeated during the final cache window before its cooldown completes, it costs one tenth of its normal Compute cost:
 
 - Dash cache cost: `3`.
 - Melee cache cost: `2`.
 - Ranged cache cost: `4`.
+- Dash cache window: final `140ms`.
+- Melee cache window: final `160ms`.
+- Ranged cache window: final `160ms`.
 
-A successful cache hit shows a cache visual near the player and posts a status note. A ready visual appears during the cache timing window for each action. Pressing the repeated action too early invalidates the cache discount for that cooldown cycle and shows a miss visual. Pressing after the cooldown has fully ended still performs the action, but at full cost.
+A successful cache hit shows a cache visual near the player and posts a status note. Abilities only show their player-adjacent cooldown circle while they are actually cooling down. Each visible circle shows overall cooldown progress, a highlighted cache wedge during the final timing window, a stronger pulse exactly when the cache window opens, a short audio tick on window entry, and a miss state if the discount was invalidated for the current cycle. Pressing the repeated action too early invalidates the cache discount for that cooldown cycle and shows a miss visual. Pressing after the cooldown has fully ended still performs the action, but at full cost.
 
-Cache timing is tracked separately per action, so mixed cached combos are possible. For example, a player can use ranged, use melee, hit the melee cache window, and then hit the ranged cache window if each repeated action lands in its own timing window. Cached chains can continue as long as each repeat is timed correctly, the player is not Compute Rate Limited, and there are positive Compute Credits available.
+Cache timing is tracked separately per action, so mixed cached combos are possible. Cached ability spends still hit both `Compute Rate Limit` and `Compute Credits` equally, while ranged siphon refunds restore only `Compute Credits`. A player can use ranged, use melee, hit the melee cache window, and then hit the ranged cache window if each repeated action lands in its own timing window. Cached chains can continue as long as each repeat is timed correctly, the player is not Compute Rate Limited, and there are positive Compute Credits available.
 
 ## Quantum Tuner And Collapse
 
