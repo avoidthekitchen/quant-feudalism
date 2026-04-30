@@ -419,9 +419,23 @@ h1 {
   pointer-events: none;
 }
 
+.game-root > .shop-access-panel {
+  position: absolute;
+  top: clamp(88px, 14vw, 128px);
+  right: 24px;
+  z-index: 2;
+  width: min(318px, calc(100% - 48px));
+  margin: 0;
+  background: rgba(8, 17, 25, 0.9);
+}
+
+.game-root > .shop-access-panel .panel-head {
+  margin-bottom: 12px;
+}
+
 .shop-access-actions {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .shop-panel {
@@ -603,6 +617,130 @@ h1 {
   display: none;
 }
 
+@media (max-width: 1440px), (max-height: 820px) {
+  #app-shell {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .stage {
+    order: -1;
+    justify-content: center;
+  }
+
+  .stage-frame {
+    width: min(100%, 1298px);
+    padding: 8px;
+  }
+
+  .stage-topline {
+    display: none;
+  }
+
+  .game-root {
+    width: min(100%, calc((100vh - 160px) * 16 / 9));
+    margin: 0 auto;
+  }
+
+  .status-rail {
+    display: grid;
+    grid-template-columns: minmax(220px, 0.75fr) minmax(0, 1.25fr);
+    align-items: start;
+    gap: 12px;
+  }
+
+  .brand-block {
+    align-content: start;
+  }
+
+  .brand-block .deck {
+    display: none;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .panel::after {
+    inset: 8px;
+  }
+
+  .panel-head {
+    margin-bottom: 12px;
+  }
+
+  .scoreboard-panel {
+    gap: 8px;
+  }
+
+  .scoreboard-list {
+    gap: 8px;
+  }
+
+  .scoreboard-row {
+    padding: 9px 10px;
+  }
+
+  .stat-panel {
+    margin-top: 8px;
+    padding: 10px 12px;
+  }
+
+  .stat-panel .panel-head {
+    margin-bottom: 8px;
+  }
+
+  .ledger-primary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .stat-panel .metric-label-row {
+    margin-bottom: 4px;
+    font-size: 0.72rem;
+  }
+
+  .stat-panel .meter {
+    height: 12px;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .metric-kicker {
+    margin-bottom: 2px;
+    font-size: 0.58rem;
+  }
+
+  .quantum-tuner-meter {
+    min-height: 14px;
+    margin: 1px 0 3px;
+  }
+
+  .quantum-tuner-icon {
+    width: 11px;
+    height: 11px;
+  }
+
+  .game-root > .shop-access-panel {
+    top: 94px;
+    right: 20px;
+    width: 304px;
+  }
+
+  .shop-access-actions {
+    gap: 8px;
+  }
+
+  .deploy-button {
+    padding: 12px 13px;
+  }
+}
+
 @media (max-width: 1180px) {
   #app-shell {
     grid-template-columns: 1fr;
@@ -610,6 +748,10 @@ h1 {
 
   .stage {
     order: -1;
+  }
+
+  .status-rail {
+    grid-template-columns: 1fr;
   }
 
   .arena-prompt {
@@ -622,6 +764,13 @@ h1 {
   .shop-panel {
     width: min(420px, calc(100% - 20px));
     max-height: calc(100% - 20px);
+  }
+
+  .game-root > .shop-access-panel {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: min(292px, calc(100% - 24px));
   }
 }
 

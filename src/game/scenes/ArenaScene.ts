@@ -11,6 +11,7 @@ import {
   spriteAnimationKey,
   spriteFrameName,
 } from "../generated-art";
+import { playBackgroundMusic } from "../music";
 import {
   extractHistoryRange,
   getCollapseAvailability,
@@ -184,6 +185,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   create(data?: { resume?: SavedArenaResume }): void {
+    playBackgroundMusic(this, "arena");
+
     this.drones = [];
     this.projectiles = [];
     this.enemySpawnPoints = [];

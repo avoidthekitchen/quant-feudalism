@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENES } from "../constants";
 import { ACTOR_ART_SCALE, PLAYER_SHEET_KEY, spriteFrameName } from "../generated-art";
+import { playBackgroundMusic } from "../music";
 
 export class ShopScene extends Phaser.Scene {
   private scanLine?: Phaser.GameObjects.Rectangle;
@@ -10,6 +11,8 @@ export class ShopScene extends Phaser.Scene {
   }
 
   create(): void {
+    playBackgroundMusic(this, "outside");
+
     this.cameras.main.setBackgroundColor(0x22313c);
 
     this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x22313c);
@@ -68,7 +71,7 @@ export class ShopScene extends Phaser.Scene {
       .setLetterSpacing(4);
 
     this.add
-      .text(96, 612, "Deploy from the side panel. Compute Credit purchases refill the reserve, not the pain.", {
+      .text(96, 612, "Deploy from Operations Access. Compute Credit purchases refill the reserve, not the pain.", {
         fontFamily: "Azeret Mono, monospace",
         fontSize: "13px",
         color: "#9fb5bd",
