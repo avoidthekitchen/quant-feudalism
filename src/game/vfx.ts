@@ -1,4 +1,6 @@
 import * as Phaser from "phaser";
+import { frameDisplayScale, textureScale } from "./art-scale";
+import { ACTOR_FRAME_WIDTH } from "./generated-art";
 import type { SpriteDirection } from "./sprite-schema";
 import { VFX_PRESETS, type VfxPreset } from "./vfx-presets";
 
@@ -89,7 +91,7 @@ export class ArenaVfxSystem {
       PLAYER_SHEET_KEY,
       spriteFrameName("dash", frameDirection, 1),
     ));
-    sprite.setScale(0.5);
+    sprite.setScale(frameDisplayScale(this.scene, PLAYER_SHEET_KEY, spriteFrameName("idle", "s", 0), ACTOR_FRAME_WIDTH));
     sprite.setFlipX(payload.facing === "w" || payload.facing === "nw" || payload.facing === "sw");
     sprite.setAngle(payload.angle ?? 0);
     sprite.setAlpha(0.52);
@@ -117,13 +119,14 @@ export class ArenaVfxSystem {
     slash.setRotation(payload.angle ?? 0);
     slash.setDepth(payload.depth ?? slash.y + 20);
     slash.setAlpha(0.72);
-    slash.setScale(1.32);
+    const startScale = textureScale(this.scene, "qf-slash", 96, 1.32);
+    slash.setScale(startScale);
     slash.setBlendMode(resolveBlendMode(preset.blendMode));
 
     this.scene.tweens.add({
       targets: slash,
       alpha: 0,
-      scale: { from: 1.32, to: 1.58 },
+      scale: { from: startScale, to: textureScale(this.scene, "qf-slash", 96, 1.58) },
       duration: preset.lifespanMs,
       onComplete: () => {
         slash.destroy();

@@ -12,6 +12,7 @@ import {
   type CombatAbilityAction,
 } from "../combat";
 import {
+  ACTOR_FRAME_WIDTH,
   DRONE_SHEET_KEY,
   PLAYER_SHEET_KEY,
   type SpriteAction,
@@ -19,6 +20,7 @@ import {
   spriteAnimationKey,
   spriteFrameName,
 } from "../generated-art";
+import { frameDisplayScale, textureScale, textureScaleY } from "../art-scale";
 import { buildAnimationSpec } from "../animation-spec";
 import { ArenaVfxSystem } from "../vfx";
 import { playBackgroundMusic } from "../music";
@@ -102,6 +104,7 @@ type GhostReplay = {
 
 export class ArenaScene extends Phaser.Scene {
   private static readonly actorScale = 0.5;
+  private static readonly actorDisplayFrameWidth = ACTOR_FRAME_WIDTH;
   private static readonly collapseVisualDurationMs = 1_000;
   private static readonly resumeSaveIntervalMs = 600;
   private static readonly combatSpeedMultiplier = 1.5;
@@ -270,7 +273,10 @@ export class ArenaScene extends Phaser.Scene {
 
     this.playerShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
     this.playerShadow.setAlpha(0.46);
-    this.playerShadow.setScale(0.92, 0.76);
+    this.playerShadow.setScale(
+      textureScale(this, "qf-shadow", 88, 0.92),
+      textureScaleY(this, "qf-shadow", 36, 0.76),
+    );
 
     this.quantumTrailGraphics = this.add.graphics();
     this.quantumTrailGraphics.setDepth(40);
@@ -286,10 +292,14 @@ export class ArenaScene extends Phaser.Scene {
       spriteFrameName("idle", "s", 0),
     );
     this.player.setDepth(this.entryPoint.y);
-    this.player.setScale(ArenaScene.actorScale);
+    const playerDisplayScale = this.actorDisplayScale(PLAYER_SHEET_KEY);
+    this.player.setScale(playerDisplayScale);
     this.player.setCollideWorldBounds(true);
     this.player.setSize(44, 40);
-    this.player.setOffset(50, 108);
+    this.player.setOffset(
+      this.actorOffsetForDisplayScale(50, playerDisplayScale),
+      this.actorOffsetForDisplayScale(108, playerDisplayScale),
+    );
     if (this.usesExternalArt()) {
       this.player.setLighting(true);
     }
@@ -316,7 +326,10 @@ export class ArenaScene extends Phaser.Scene {
     this.collapseOverlay.setBlendMode(Phaser.BlendModes.SCREEN);
 
     this.ghostShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
-    this.ghostShadow.setScale(0.88, 0.64);
+    this.ghostShadow.setScale(
+      textureScale(this, "qf-shadow", 88, 0.88),
+      textureScaleY(this, "qf-shadow", 36, 0.64),
+    );
     this.ghostShadow.setAlpha(0);
     this.ghostShadow.setTint(0x60ffd3);
     this.ghostShadow.setDepth(44);
@@ -328,7 +341,7 @@ export class ArenaScene extends Phaser.Scene {
       PLAYER_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    this.ghostSprite.setScale(ArenaScene.actorScale);
+    this.ghostSprite.setScale(playerDisplayScale);
     this.ghostSprite.setAlpha(0);
     this.ghostSprite.setTint(0x9cf9ff);
     this.ghostSprite.setBlendMode(Phaser.BlendModes.SCREEN);
@@ -483,6 +496,7 @@ export class ArenaScene extends Phaser.Scene {
         const x = startX + col * 96 + (row % 2) * 48;
         const y = startY + row * 46;
         const tile = this.add.image(x, y, "qf-floor");
+        tile.setScale(textureScale(this, "qf-floor", 128));
         tile.setAlpha((row + col) % 5 === 0 ? 0.9 : 0.68);
         tile.setDepth(-260 + row);
       }
@@ -520,7 +534,10 @@ export class ArenaScene extends Phaser.Scene {
 
     hazePoints.forEach(({ x, y, scale, alpha }) => {
       const haze = this.add.image(x, y, "qf-haze");
-      haze.setScale(scale, scale * 0.72);
+      haze.setScale(
+        textureScale(this, "qf-haze", 256, scale),
+        textureScaleY(this, "qf-haze", 256, scale * 0.72),
+      );
       haze.setAlpha(alpha);
       haze.setDepth(y - 180);
     });
@@ -544,6 +561,19 @@ export class ArenaScene extends Phaser.Scene {
 
   private usesExternalArt(): boolean {
     return this.registry.get("qf-art-mode") !== "procedural";
+  }
+
+  private actorDisplayScale(sheetKey: string): number {
+    return frameDisplayScale(
+      this,
+      sheetKey,
+      spriteFrameName("idle", "s", 0),
+      ArenaScene.actorDisplayFrameWidth,
+    );
+  }
+
+  private actorOffsetForDisplayScale(offset: number, displayScale: number): number {
+    return offset * (ArenaScene.actorScale / displayScale);
   }
 
   private setupVisualSystems(): void {
@@ -604,11 +634,17 @@ export class ArenaScene extends Phaser.Scene {
     ];
 
     monoliths.forEach(({ x, y }) => {
-      const shadow = this.add.image(x, y + 44, "qf-shadow").setScale(1.85, 0.92).setAlpha(0.42);
+      const shadow = this.add
+        .image(x, y + 44, "qf-shadow")
+        .setScale(
+          textureScale(this, "qf-shadow", 88, 1.85),
+          textureScaleY(this, "qf-shadow", 36, 0.92),
+        )
+        .setAlpha(0.42);
       shadow.setDepth(y - 10);
       const pillar = this.walls.create(x, y, "qf-pillar") as Phaser.Physics.Arcade.Sprite;
       pillar.setDepth(y + 10);
-      pillar.setScale(1.18);
+      pillar.setScale(textureScale(this, "qf-pillar", 112, 1.18));
       if (this.usesExternalArt()) {
         pillar.setLighting(true);
       }
@@ -639,7 +675,7 @@ export class ArenaScene extends Phaser.Scene {
 
     this.add
       .image(this.extractionPoint.x, this.extractionPoint.y - 24, "qf-gate")
-      .setScale(1.08)
+      .setScale(textureScale(this, "qf-gate", 192, 1.08))
       .setDepth(this.extractionPoint.y);
 
     this.add
@@ -804,12 +840,18 @@ export class ArenaScene extends Phaser.Scene {
     if (action === "dash") {
       this.playPlayerAnimation("dash", direction);
       this.player.setAngle(this.dashDirection.x * 7);
-      this.playerShadow.setScale(1.14, 0.64);
+      this.playerShadow.setScale(
+        textureScale(this, "qf-shadow", 88, 1.14),
+        textureScaleY(this, "qf-shadow", 36, 0.64),
+      );
       return;
     }
 
     this.player.setAngle(speed > 18 ? Phaser.Math.Clamp(this.velocity.x / 24, -6, 6) : 0);
-    this.playerShadow.setScale(0.92 + Math.min(speed / 900, 0.12), 0.76);
+    this.playerShadow.setScale(
+      textureScale(this, "qf-shadow", 88, 0.92 + Math.min(speed / 900, 0.12)),
+      textureScaleY(this, "qf-shadow", 36, 0.76),
+    );
     this.playPlayerAnimation(action, direction);
   }
 
@@ -1350,6 +1392,7 @@ export class ArenaScene extends Phaser.Scene {
       "qf-bolt",
     );
     sprite.setRotation(angle);
+    sprite.setScale(textureScale(this, "qf-bolt", 48));
     sprite.setDepth(this.player.y + 20);
 
     const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(490);
@@ -2255,13 +2298,19 @@ export class ArenaScene extends Phaser.Scene {
 
     this.playPlayerAnimation(action, this.playerFacing);
     if (action === "dash") {
-      this.playerShadow.setScale(1.14, 0.64);
+      this.playerShadow.setScale(
+        textureScale(this, "qf-shadow", 88, 1.14),
+        textureScaleY(this, "qf-shadow", 36, 0.64),
+      );
       this.player.setAngle(this.dashDirection.x * 7);
       return;
     }
 
     const speed = this.velocity.length();
-    this.playerShadow.setScale(0.92 + Math.min(speed / 900, 0.12), 0.76);
+    this.playerShadow.setScale(
+      textureScale(this, "qf-shadow", 88, 0.92 + Math.min(speed / 900, 0.12)),
+      textureScaleY(this, "qf-shadow", 36, 0.76),
+    );
   }
 
   private createProjectileFromSnapshot(projectileSnapshot: ProjectileArenaSnapshot): Projectile {
@@ -2271,6 +2320,7 @@ export class ArenaScene extends Phaser.Scene {
       "qf-bolt",
     );
     sprite.setRotation(projectileSnapshot.rotation);
+    sprite.setScale(textureScale(this, "qf-bolt", 48));
     sprite.setDepth(projectileSnapshot.position.y + 20);
     sprite.setVelocity(projectileSnapshot.velocity.x, projectileSnapshot.velocity.y);
 
@@ -2288,7 +2338,10 @@ export class ArenaScene extends Phaser.Scene {
     const x = this.clampArenaX(snapshot.position.x);
     const y = this.clampArenaY(snapshot.position.y);
     const shadow = this.add.image(x, y + 18, "qf-shadow");
-    shadow.setScale(0.58, 0.52);
+    shadow.setScale(
+      textureScale(this, "qf-shadow", 88, 0.58),
+      textureScaleY(this, "qf-shadow", 36, 0.52),
+    );
     shadow.setAlpha(0.42);
     shadow.setDepth(snapshot.position.y - 6);
 
@@ -2298,9 +2351,13 @@ export class ArenaScene extends Phaser.Scene {
       DRONE_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    sprite.setScale(ArenaScene.actorScale);
+    const droneDisplayScale = this.actorDisplayScale(DRONE_SHEET_KEY);
+    sprite.setScale(droneDisplayScale);
     sprite.setCircle(28);
-    sprite.setOffset(68, 88);
+    sprite.setOffset(
+      this.actorOffsetForDisplayScale(68, droneDisplayScale),
+      this.actorOffsetForDisplayScale(88, droneDisplayScale),
+    );
     sprite.setDepth(snapshot.position.y + 2);
     sprite.setBounce(0.1);
     sprite.setCollideWorldBounds(true);

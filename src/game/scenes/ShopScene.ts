@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENES } from "../constants";
-import { ACTOR_ART_SCALE, PLAYER_SHEET_KEY, spriteFrameName } from "../generated-art";
+import { ACTOR_FRAME_WIDTH, PLAYER_SHEET_KEY, spriteFrameName } from "../generated-art";
+import { frameDisplayScale, textureScale, textureScaleY } from "../art-scale";
 import { playBackgroundMusic } from "../music";
 
 export class ShopScene extends Phaser.Scene {
@@ -17,8 +18,14 @@ export class ShopScene extends Phaser.Scene {
 
     this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x22313c);
     this.add.rectangle(GAME_WIDTH / 2, 124, GAME_WIDTH, 190, 0x344653, 0.86);
-    this.add.image(GAME_WIDTH * 0.74, GAME_HEIGHT * 0.44, "qf-haze").setScale(3.1, 2.1).setAlpha(0.24);
-    this.add.image(GAME_WIDTH * 0.24, GAME_HEIGHT * 0.74, "qf-haze").setScale(2.4, 1.6).setAlpha(0.16);
+    this.add.image(GAME_WIDTH * 0.74, GAME_HEIGHT * 0.44, "qf-haze").setScale(
+      textureScale(this, "qf-haze", 256, 3.1),
+      textureScaleY(this, "qf-haze", 256, 2.1),
+    ).setAlpha(0.24);
+    this.add.image(GAME_WIDTH * 0.24, GAME_HEIGHT * 0.74, "qf-haze").setScale(
+      textureScale(this, "qf-haze", 256, 2.4),
+      textureScaleY(this, "qf-haze", 256, 1.6),
+    ).setAlpha(0.16);
 
     const sigil = this.add.container(GAME_WIDTH * 0.68, GAME_HEIGHT * 0.42);
     const outer = this.add.rectangle(0, 0, 280, 280);
@@ -55,11 +62,14 @@ export class ShopScene extends Phaser.Scene {
     const platform = this.add.container(290, 470);
     const dais = this.add.polygon(0, 54, [0, -74, 170, 0, 0, 74, -170, 0], 0x344653, 0.92);
     dais.setStrokeStyle(2, 0x9fffea, 0.44);
-    const avatarShadow = this.add.image(-36, 48, "qf-shadow").setScale(1.05, 0.72).setAlpha(0.52);
+    const avatarShadow = this.add.image(-36, 48, "qf-shadow").setScale(
+      textureScale(this, "qf-shadow", 88, 1.05),
+      textureScaleY(this, "qf-shadow", 36, 0.72),
+    ).setAlpha(0.52);
     const avatar = this.add
       .image(-36, -4, PLAYER_SHEET_KEY, spriteFrameName("idle", "se", 0))
-      .setScale(1.9 / ACTOR_ART_SCALE);
-    const terminal = this.add.image(112, 0, "qf-terminal").setScale(1.5);
+      .setScale(frameDisplayScale(this, PLAYER_SHEET_KEY, spriteFrameName("idle", "se", 0), ACTOR_FRAME_WIDTH * 1.9));
+    const terminal = this.add.image(112, 0, "qf-terminal").setScale(textureScale(this, "qf-terminal", 88, 1.5));
     platform.add([dais, avatarShadow, avatar, terminal]);
 
     this.add
