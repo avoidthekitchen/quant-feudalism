@@ -21,6 +21,49 @@ Run the automated state and rewind tests with:
 npm test
 ```
 
+## Visual Pipeline
+
+The game now supports a staged authored-art pipeline with procedural fallback:
+
+- The default art mode is `procedural`, so a fresh checkout boots without trying to load missing authored atlases.
+- External authored assets are loaded in `BootScene` using `ART_ASSET_MANIFEST` in `src/game/assets-manifest.ts` when requested with `?art=external` or `?art=external-preferred`.
+- If required authored assets are missing in external-preferred mode, the game falls back to `createGeneratedArt` from `src/game/generated-art.ts`.
+- `?art=external-only` is available for asset-production validation and fails fast through manifest validation rather than silently using placeholders.
+
+### Authored Art Paths
+
+- Actors:
+  - `assets/art/actors/player.png` + `player.json` (+ optional `player_n.png`)
+  - `assets/art/actors/drone.png` + `drone.json` (+ optional `drone_n.png`)
+- Environment and VFX:
+  - `assets/art/environment/*`
+  - `assets/art/vfx/*`
+
+See the full required asset list and frame contract in [docs/ASSET_WORK_SPEC.md](/Users/mistercheese/Code/quant-feudalism/docs/ASSET_WORK_SPEC.md).
+
+Example authored-art smoke test URL:
+
+```txt
+http://localhost:5173/?art=external
+```
+
+## Visual Systems
+
+Arena presentation now layers:
+
+- Camera color grading and vignette filters.
+- Context-sensitive blur and collapse displacement.
+- Scene lighting (`this.lights.enable()`) with lit actors/props.
+- Reusable combat VFX presets (`src/game/vfx.ts`) used by dash/melee/ranged/lunge/collapse/ghost events.
+- Ambient particle pass for subtle arena motion and depth.
+
+## Performance Guidance
+
+- The renderer is WebGL-first for high-fidelity filters, lights, and particles.
+- Keep atlas padding/extrusion enabled to avoid texture sampling seams.
+- If performance dips on lower-end hardware, lower effect density before changing core combat timings.
+- Validate readability first: combat telegraphs and hit feedback should remain legible under all effects.
+
 ## Publishing
 
 Cloudflare Workers Static Assets serves the game from

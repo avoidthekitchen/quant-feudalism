@@ -12,16 +12,15 @@ import {
   type CombatAbilityAction,
 } from "../combat";
 import {
-  ACTOR_ART_SCALE,
   DRONE_SHEET_KEY,
   PLAYER_SHEET_KEY,
-  SPRITE_ACTIONS,
-  SPRITE_DIRECTIONS,
   type SpriteAction,
   type SpriteDirection,
   spriteAnimationKey,
   spriteFrameName,
 } from "../generated-art";
+import { buildAnimationSpec } from "../animation-spec";
+import { ArenaVfxSystem } from "../vfx";
 import { playBackgroundMusic } from "../music";
 import {
   extractHistoryRange,
@@ -102,6 +101,7 @@ type GhostReplay = {
 };
 
 export class ArenaScene extends Phaser.Scene {
+  private static readonly actorScale = 0.5;
   private static readonly collapseVisualDurationMs = 1_000;
   private static readonly resumeSaveIntervalMs = 600;
   private static readonly combatSpeedMultiplier = 1.5;
@@ -146,6 +146,9 @@ export class ArenaScene extends Phaser.Scene {
     SPACE: Phaser.Input.Keyboard.Key;
   };
   private blurFilter?: Phaser.Filters.Blur;
+  private colorMatrixFilter?: Phaser.Filters.ColorMatrix;
+  private vignetteFilter?: Phaser.Filters.Vignette;
+  private displacementFilter?: Phaser.Filters.Displacement;
   private extractionRing?: Phaser.GameObjects.Arc;
   private arenaCleared = false;
   private enemyCountLabel?: Phaser.GameObjects.Text;
@@ -191,6 +194,9 @@ export class ArenaScene extends Phaser.Scene {
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
+  private vfx?: ArenaVfxSystem;
+  private arenaPointLight?: Phaser.GameObjects.Light;
+  private ambienceEmitter?: Phaser.GameObjects.Particles.ParticleEmitter;
   private resumeSaveAccumulatorMs = 0;
   private readonly handlePagePersist = (): void => {
     this.saveResumeCheckpoint();
@@ -259,6 +265,8 @@ export class ArenaScene extends Phaser.Scene {
     this.createExtractionGate();
     this.createAtmosphere();
     this.registerActorAnimations();
+    this.setupVisualSystems();
+    this.vfx = new ArenaVfxSystem(this, this.trackTransientVisual.bind(this));
 
     this.playerShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
     this.playerShadow.setAlpha(0.46);
@@ -278,10 +286,13 @@ export class ArenaScene extends Phaser.Scene {
       spriteFrameName("idle", "s", 0),
     );
     this.player.setDepth(this.entryPoint.y);
-    this.player.setScale(1 / ACTOR_ART_SCALE);
+    this.player.setScale(ArenaScene.actorScale);
     this.player.setCollideWorldBounds(true);
     this.player.setSize(44, 40);
     this.player.setOffset(50, 108);
+    if (this.usesExternalArt()) {
+      this.player.setLighting(true);
+    }
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
     playerBody.setMaxVelocity(840, 840);
 
@@ -290,16 +301,8 @@ export class ArenaScene extends Phaser.Scene {
     this.spawnEnemies();
 
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setRoundPixels(true);
+    this.cameras.main.setRoundPixels(false);
     this.cameras.main.setZoom(1);
-    this.blurFilter = this.cameras.main.filters!.external.addBlur(
-      0,
-      1,
-      1,
-      0.001,
-      0xeaffff,
-      2,
-    );
     this.collapseOverlay = this.add.rectangle(
       this.scale.width / 2,
       this.scale.height / 2,
@@ -325,7 +328,7 @@ export class ArenaScene extends Phaser.Scene {
       PLAYER_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    this.ghostSprite.setScale(1 / ACTOR_ART_SCALE);
+    this.ghostSprite.setScale(ArenaScene.actorScale);
     this.ghostSprite.setAlpha(0);
     this.ghostSprite.setTint(0x9cf9ff);
     this.ghostSprite.setBlendMode(Phaser.BlendModes.SCREEN);
@@ -384,6 +387,11 @@ export class ArenaScene extends Phaser.Scene {
       this.destroyCooldownIndicators();
       this.destroyAllProjectiles();
       this.destroyAllDrones();
+      this.ambienceEmitter?.destroy();
+      if (this.arenaPointLight) {
+        this.lights.removeLight(this.arenaPointLight);
+        this.arenaPointLight = undefined;
+      }
       if (typeof window !== "undefined") {
         window.removeEventListener("pagehide", this.handlePagePersist);
       }
@@ -534,6 +542,43 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  private usesExternalArt(): boolean {
+    return this.registry.get("qf-art-mode") !== "procedural";
+  }
+
+  private setupVisualSystems(): void {
+    const useLighting = this.usesExternalArt();
+    this.colorMatrixFilter = this.cameras.main.filters!.internal.addColorMatrix();
+    this.colorMatrixFilter.colorMatrix.reset().saturate(0.08);
+    this.vignetteFilter = this.cameras.main.filters!.external.addVignette(0.5, 0.5, 0.9, 0.12, 0x0d1219);
+    this.blurFilter = this.cameras.main.filters!.external.addBlur(0, 1, 1, 0.001, 0xeaffff, 2);
+    this.displacementFilter = this.cameras.main.filters!.external.addDisplacement("qf-haze", 0, 0);
+    this.displacementFilter.setActive(false);
+
+    if (useLighting) {
+      this.lights.enable();
+      this.lights.setAmbientColor(0x808b92);
+      this.arenaPointLight = this.lights.addLight(this.entryPoint.x, this.entryPoint.y, 260, 0x60ffd3, 1.05, 52);
+    } else {
+      this.lights.disable();
+    }
+
+    this.ambienceEmitter = this.add.particles(0, 0, "qf-haze", {
+      x: { min: 60, max: this.arenaWidth - 60 },
+      y: { min: 60, max: this.arenaHeight - 60 },
+      quantity: 1,
+      frequency: 210,
+      lifespan: { min: 1200, max: 2600 },
+      scale: { start: 0.08, end: 0.22 },
+      alpha: { start: 0.08, end: 0 },
+      rotate: { min: -20, max: 20 },
+      speedY: { min: -12, max: -40 },
+      speedX: { min: -10, max: 10 },
+      blendMode: Phaser.BlendModes.SCREEN,
+    });
+    this.ambienceEmitter.setDepth(1600);
+  }
+
   private createWalls(): void {
     this.walls = this.physics.add.staticGroup();
 
@@ -564,6 +609,9 @@ export class ArenaScene extends Phaser.Scene {
       const pillar = this.walls.create(x, y, "qf-pillar") as Phaser.Physics.Arcade.Sprite;
       pillar.setDepth(y + 10);
       pillar.setScale(1.18);
+      if (this.usesExternalArt()) {
+        pillar.setLighting(true);
+      }
       pillar.refreshBody();
     });
   }
@@ -640,22 +688,22 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private registerAnimationSet(actor: "player" | "drone", sheetKey: string): void {
-    SPRITE_DIRECTIONS.forEach((direction) => {
-      (Object.entries(SPRITE_ACTIONS) as [SpriteAction, number][]).forEach(([action, count]) => {
-        const key = spriteAnimationKey(actor, action, direction);
-        if (this.anims.exists(key)) {
-          return;
-        }
+    const specs = buildAnimationSpec(actor);
+    specs.forEach((spec) => {
+      const key = spriteAnimationKey(actor, spec.action, spec.direction);
+      if (this.anims.exists(key)) {
+        return;
+      }
 
-        this.anims.create({
-          key,
-          frames: Array.from({ length: count }, (_, frame) => ({
-            key: sheetKey,
-            frame: spriteFrameName(action, direction, frame),
-          })),
-          frameRate: action === "idle" ? 3 : action === "run" ? 11 : 15,
-          repeat: action === "attack" || action === "dash" ? 0 : -1,
-        });
+      const frameCount = spec.action === "idle" ? 2 : spec.action === "run" ? 4 : 3;
+      this.anims.create({
+        key,
+        frames: Array.from({ length: frameCount }, (_, frame) => ({
+          key: sheetKey,
+          frame: spriteFrameName(spec.action, spec.direction, frame),
+        })),
+        frameRate: spec.frameRate,
+        repeat: spec.repeat,
       });
     });
   }
@@ -848,32 +896,18 @@ export class ArenaScene extends Phaser.Scene {
     this.dashInvulnerabilityTimer = ArenaScene.playerDashInvulnerabilityDuration;
     this.dashDirection.copy(direction);
     this.playerFacing = this.directionFromVector(direction, this.playerFacing);
-    this.cameras.main.shake(90, 0.0022);
     this.createDashAfterimage();
     this.createCacheDiscountVisual("dash", attempt);
   }
 
   private createDashAfterimage(): void {
-    const afterimage = this.trackTransientVisual(this.add.image(
-      this.player.x,
-      this.player.y,
-      PLAYER_SHEET_KEY,
-      spriteFrameName("dash", this.animationDirectionForFacing(this.playerFacing), 1),
-    ));
-    afterimage.setScale(1 / ACTOR_ART_SCALE);
-    afterimage.setFlipX(this.shouldMirrorFacing(this.playerFacing));
-    afterimage.setAngle(this.player.angle);
-    afterimage.setAlpha(0.52);
-    afterimage.setTint(0x60ffd3);
-    afterimage.setDepth(this.player.depth - 1);
-
-    this.tweens.add({
-      targets: afterimage,
-      alpha: 0,
-      x: afterimage.x - this.dashDirection.x * 42,
-      y: afterimage.y - this.dashDirection.y * 22,
-      duration: 180,
-      onComplete: () => afterimage.destroy(),
+    this.vfx?.trigger("dash_afterimage", {
+      x: this.player.x,
+      y: this.player.y,
+      direction: this.dashDirection,
+      facing: this.playerFacing,
+      angle: this.player.angle,
+      depth: this.player.depth - 1,
     });
   }
 
@@ -1236,22 +1270,11 @@ export class ArenaScene extends Phaser.Scene {
     const swingAngle = this.angleForDirection(this.playerFacing);
     this.playerAttackTimer = ArenaScene.meleeAttackLockDuration;
     this.playPlayerAnimation("attack", this.playerFacing);
-    const slash = this.trackTransientVisual(this.add.image(
-      this.player.x + Math.cos(swingAngle) * 54,
-      this.player.y + Math.sin(swingAngle) * 36,
-      "qf-slash",
-    ));
-    slash.setRotation(swingAngle);
-    slash.setDepth(this.player.y + 30);
-    slash.setAlpha(0.72);
-    slash.setScale(1.32);
-
-    this.tweens.add({
-      targets: slash,
-      alpha: 0,
-      scale: { from: 1.32, to: 1.58 },
-      duration: 110,
-      onComplete: () => slash.destroy(),
+    this.vfx?.trigger("melee_slash", {
+      x: this.player.x + Math.cos(swingAngle) * 54,
+      y: this.player.y + Math.sin(swingAngle) * 36,
+      angle: swingAngle,
+      depth: this.player.y + 30,
     });
 
     this.createCacheDiscountVisual("melee", attempt);
@@ -1410,29 +1433,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createRangedSiphonVisual(impactX: number, impactY: number, refunded: number): void {
-    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, 20, 0x60ffd3, 0.08));
-    pulse.setStrokeStyle(2, 0x60ffd3, 0.65);
-    pulse.setDepth(impactY + 18);
-
-    const inner = this.trackTransientVisual(this.add.circle(impactX, impactY, 8, 0xe7fff8, 0.12));
-    inner.setStrokeStyle(1, 0xe7fff8, 0.42);
-    inner.setDepth(impactY + 19);
-
-    this.tweens.add({
-      targets: pulse,
-      alpha: 0,
-      scale: { from: 0.75, to: 1.35 },
-      duration: 220,
-      ease: "Sine.easeOut",
-      onComplete: () => pulse.destroy(),
-    });
-    this.tweens.add({
-      targets: inner,
-      alpha: 0,
-      scale: { from: 1.1, to: 0.55 },
-      duration: 220,
-      ease: "Sine.easeOut",
-      onComplete: () => inner.destroy(),
+    this.vfx?.trigger("ranged_siphon", {
+      x: impactX,
+      y: impactY,
+      depth: impactY + 18,
     });
 
     if (refunded <= 0) {
@@ -1579,6 +1583,11 @@ export class ArenaScene extends Phaser.Scene {
 
   private createDroneLungeTelegraph(drone: EnemyUnit): void {
     this.clearDroneLungeTelegraph(drone);
+    this.vfx?.trigger("drone_lunge_windup", {
+      x: drone.sprite.x,
+      y: drone.sprite.y,
+      depth: drone.sprite.depth - 2,
+    });
     drone.lungeTelegraph = this.add.rectangle(
       drone.sprite.x,
       drone.sprite.y,
@@ -1675,6 +1684,24 @@ export class ArenaScene extends Phaser.Scene {
 
   private updateVisuals(): void {
     const severity = gameState.getVisionBlurStrength();
+    const pressure = Phaser.Math.Clamp(1 - gameState.getMovementMultiplier(), 0, 1);
+
+    if (this.vignetteFilter) {
+      this.vignetteFilter.strength = 0.12 + pressure * 0.22;
+      this.vignetteFilter.radius = 0.9 - pressure * 0.08;
+    }
+
+    if (this.colorMatrixFilter) {
+      this.colorMatrixFilter.colorMatrix.reset().saturate(0.08 - pressure * 0.16);
+    }
+
+    if (this.arenaPointLight) {
+      this.arenaPointLight.x = this.player.x;
+      this.arenaPointLight.y = this.player.y - 20;
+      this.arenaPointLight.setIntensity(1 + pressure * 0.35);
+      this.arenaPointLight.setRadius(220 + pressure * 18);
+    }
+
     if (this.blurFilter) {
       if (severity <= 0) {
         this.blurFilter.strength = 0;
@@ -1793,7 +1820,10 @@ export class ArenaScene extends Phaser.Scene {
     this.ghostReplay = undefined;
     this.hideGhostReplay();
     this.clearTransientVisuals();
-    this.cameras.main.shake(140, 0.0022);
+    this.vfx?.trigger("collapse_pulse", {
+      x: this.player.x,
+      y: this.player.y,
+    });
     gameState.setNotice("Quantum Tuner engaged. Collapsing the discarded branch.");
   }
 
@@ -1855,6 +1885,10 @@ export class ArenaScene extends Phaser.Scene {
         timeline[timeline.length - 1].timelineTimeMs - timeline[0].timelineTimeMs,
       ),
     };
+    this.vfx?.trigger("ghost_replay", {
+      x: timeline[0].snapshot.player.position.x,
+      y: timeline[0].snapshot.player.position.y,
+    });
     this.applyGhostSample(timeline[0].snapshot.player);
   }
 
@@ -1980,6 +2014,11 @@ export class ArenaScene extends Phaser.Scene {
     const overlayAlpha = 0.08 + pulse * 0.2;
     this.collapseOverlay?.setAlpha(progress <= 0 ? 0 : overlayAlpha);
     this.cameras.main.setZoom(1 + pulse * 0.045);
+    if (this.displacementFilter) {
+      this.displacementFilter.setActive(progress > 0.01);
+      this.displacementFilter.x = pulse * 0.035;
+      this.displacementFilter.y = pulse * 0.06;
+    }
 
     if (this.blurFilter) {
       const baseStrength = gameState.getVisionBlurStrength() * 0.95;
@@ -2259,13 +2298,16 @@ export class ArenaScene extends Phaser.Scene {
       DRONE_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    sprite.setScale(1 / ACTOR_ART_SCALE);
+    sprite.setScale(ArenaScene.actorScale);
     sprite.setCircle(28);
     sprite.setOffset(68, 88);
     sprite.setDepth(snapshot.position.y + 2);
     sprite.setBounce(0.1);
     sprite.setCollideWorldBounds(true);
     sprite.setVelocity(snapshot.velocity.x, snapshot.velocity.y);
+    if (this.usesExternalArt()) {
+      sprite.setLighting(true);
+    }
     const wallCollider = this.physics.add.collider(sprite, this.walls);
     const playerCollider = this.physics.add.collider(
       sprite,

@@ -10,8 +10,9 @@ export function createGame(parent: string): Phaser.Game {
     parent,
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
-    pixelArt: true,
+    pixelArt: false,
     backgroundColor: "#13181b",
+    maxLights: 12,
     scene: [BootScene, ShopScene, ArenaScene],
     physics: {
       default: "arcade",

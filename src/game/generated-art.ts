@@ -1,20 +1,18 @@
 import * as Phaser from "phaser";
+import {
+  SPRITE_ACTIONS,
+  SPRITE_DIRECTIONS,
+  type SpriteAction,
+  type SpriteDirection,
+} from "./sprite-schema";
 
 export const PLAYER_SHEET_KEY = "qf-player-sheet";
 export const DRONE_SHEET_KEY = "qf-drone-sheet";
-export const SPRITE_DIRECTIONS = ["s", "se", "e", "ne", "n", "nw", "w", "sw"] as const;
 export const ACTOR_ART_SCALE = 2;
 export const ACTOR_FRAME_WIDTH = 96;
 export const ACTOR_FRAME_HEIGHT = 112;
-export const SPRITE_ACTIONS = {
-  idle: 2,
-  run: 4,
-  attack: 3,
-  dash: 3,
-} as const;
-
-export type SpriteDirection = (typeof SPRITE_DIRECTIONS)[number];
-export type SpriteAction = keyof typeof SPRITE_ACTIONS;
+export { SPRITE_ACTIONS, SPRITE_DIRECTIONS };
+export type { SpriteAction, SpriteDirection };
 
 type PlayerFrameOptions = {
   key: string;
