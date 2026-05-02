@@ -12,7 +12,7 @@ import {
   type CombatAbilityAction,
 } from "../combat";
 import {
-  ACTOR_ART_SCALE,
+  ACTOR_DISPLAY_SCALE,
   DRONE_SHEET_KEY,
   PLAYER_SHEET_KEY,
   SPRITE_ACTIONS,
@@ -278,7 +278,7 @@ export class ArenaScene extends Phaser.Scene {
       spriteFrameName("idle", "s", 0),
     );
     this.player.setDepth(this.entryPoint.y);
-    this.player.setScale(1 / ACTOR_ART_SCALE);
+    this.player.setScale(ACTOR_DISPLAY_SCALE);
     this.player.setCollideWorldBounds(true);
     this.player.setSize(44, 40);
     this.player.setOffset(50, 108);
@@ -325,7 +325,7 @@ export class ArenaScene extends Phaser.Scene {
       PLAYER_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    this.ghostSprite.setScale(1 / ACTOR_ART_SCALE);
+    this.ghostSprite.setScale(ACTOR_DISPLAY_SCALE);
     this.ghostSprite.setAlpha(0);
     this.ghostSprite.setTint(0x9cf9ff);
     this.ghostSprite.setBlendMode(Phaser.BlendModes.SCREEN);
@@ -860,7 +860,7 @@ export class ArenaScene extends Phaser.Scene {
       PLAYER_SHEET_KEY,
       spriteFrameName("dash", this.animationDirectionForFacing(this.playerFacing), 1),
     ));
-    afterimage.setScale(1 / ACTOR_ART_SCALE);
+    afterimage.setScale(ACTOR_DISPLAY_SCALE);
     afterimage.setFlipX(this.shouldMirrorFacing(this.playerFacing));
     afterimage.setAngle(this.player.angle);
     afterimage.setAlpha(0.52);
@@ -2259,7 +2259,7 @@ export class ArenaScene extends Phaser.Scene {
       DRONE_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    sprite.setScale(1 / ACTOR_ART_SCALE);
+    sprite.setScale(ACTOR_DISPLAY_SCALE);
     sprite.setCircle(28);
     sprite.setOffset(68, 88);
     sprite.setDepth(snapshot.position.y + 2);

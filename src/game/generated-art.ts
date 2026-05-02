@@ -3,9 +3,9 @@ import * as Phaser from "phaser";
 export const PLAYER_SHEET_KEY = "qf-player-sheet";
 export const DRONE_SHEET_KEY = "qf-drone-sheet";
 export const SPRITE_DIRECTIONS = ["s", "se", "e", "ne", "n", "nw", "w", "sw"] as const;
-export const ACTOR_ART_SCALE = 2;
-export const ACTOR_FRAME_WIDTH = 96;
-export const ACTOR_FRAME_HEIGHT = 112;
+export const ACTOR_FRAME_WIDTH = 192;
+export const ACTOR_FRAME_HEIGHT = 224;
+export const ACTOR_DISPLAY_SCALE = 0.5;
 export const SPRITE_ACTIONS = {
   idle: 2,
   run: 4,
@@ -189,16 +189,15 @@ function drawPlayerSheetFrame(
   const front = dir.y > 0.25;
   const runCycle = action === "run" ? frame : 0;
   const attackPulse = action === "attack" ? frame : -1;
-  const dashPulse = action === "dash" ? frame : -1;
-  const bob = action === "run" ? (frame % 2 === 0 ? -2 : 1) : action === "idle" && frame === 1 ? -1 : 0;
-  const legA = action === "run" ? [-6, 2, 5, -2][runCycle] : action === "dash" ? -8 : 0;
-  const legB = action === "run" ? [5, -3, -6, 3][runCycle] : action === "dash" ? 3 : 0;
-  const lean = action === "dash" ? side * 5 : side * 2 + (action === "run" ? side * 2 : 0);
+  const bob = action === "run" ? (frame % 2 === 0 ? -4 : 2) : action === "idle" && frame === 1 ? -2 : 0;
+  const legA = action === "run" ? [-12, 4, 10, -4][runCycle] : action === "dash" ? -16 : 0;
+  const legB = action === "run" ? [10, -6, -12, 6][runCycle] : action === "dash" ? 6 : 0;
+  const lean = action === "dash" ? side * 10 : side * 4 + (action === "run" ? side * 4 : 0);
   const aimSide = side === 0 ? 1 : side;
-  const cx = x + 48;
-  const ground = y + 100;
-  const torsoY = y + 44 + bob;
-  const headY = y + 24 + bob + (back ? -2 : 0);
+  const cx = x + 96;
+  const ground = y + 200;
+  const torsoY = y + 88 + bob;
+  const headY = y + 48 + bob + (back ? -4 : 0);
   const hoodLean = lean + side;
   const armorShade = back ? "#121a25" : "#0b111a";
   const armorMid = back ? "#1b2633" : "#172432";
@@ -208,114 +207,125 @@ function drawPlayerSheetFrame(
   const neonTeal = action === "dash" ? "#9fffea" : "#60ffd3";
   const visor = back ? neonTeal : "#ff4f8b";
 
-  rect(ctx, x + 27, ground - 9, 42, 8, "rgba(2, 5, 9, 0.46)");
+  rect(ctx, x + 54, ground - 18, 84, 16, "rgba(2, 5, 9, 0.46)");
   if (action === "dash") {
-    rect(ctx, cx - side * (38 + frame * 9), y + 50 + frame * 3, 32, 4, "rgba(96, 255, 211, 0.42)");
-    rect(ctx, cx - side * (31 + frame * 7), y + 64, 24, 4, "rgba(255, 63, 114, 0.35)");
-    rect(ctx, cx - side * (26 + frame * 6), y + 73, 18, 3, "rgba(255, 255, 255, 0.28)");
+    rect(ctx, cx - side * (76 + frame * 18), y + 100 + frame * 6, 64, 8, "rgba(96, 255, 211, 0.42)");
+    rect(ctx, cx - side * (62 + frame * 14), y + 128, 48, 8, "rgba(255, 63, 114, 0.35)");
+    rect(ctx, cx - side * (52 + frame * 12), y + 146, 36, 6, "rgba(255, 255, 255, 0.28)");
   }
 
-  strokePixelLine(ctx, cx + hoodLean + aimSide * 12, torsoY + 5, cx + hoodLean + aimSide * 31, y + 22, "#070b10", 5);
-  strokePixelLine(ctx, cx + hoodLean + aimSide * 14, torsoY + 7, cx + hoodLean + aimSide * 33, y + 24, "#c9fff0", 2);
-  rect(ctx, cx + hoodLean + aimSide * 24, y + 20, 5, 15, "#05070b");
+  strokePixelLine(ctx, cx + hoodLean + aimSide * 24, torsoY + 10, cx + hoodLean + aimSide * 62, y + 44, "#070b10", 10);
+  strokePixelLine(ctx, cx + hoodLean + aimSide * 28, torsoY + 14, cx + hoodLean + aimSide * 66, y + 48, "#c9fff0", 4);
+  rect(ctx, cx + hoodLean + aimSide * 48, y + 40, 10, 30, "#05070b");
 
-  rect(ctx, cx - 13 + legA, y + 71 + bob, 9, 21, "#090f17");
-  rect(ctx, cx - 10 + legA, y + 75 + bob, 5, 12, "#1e2d38");
-  rect(ctx, cx + 5 + legB, y + 70 + bob, 9, 23, "#0d1420");
-  rect(ctx, cx + 7 + legB, y + 74 + bob, 5, 13, "#263746");
-  rect(ctx, cx - 14 + legA, y + 91 + bob, 16, 6, "#080c13");
-  rect(ctx, cx + 2 + legB, y + 92 + bob, 17, 5, "#080c13");
-  rect(ctx, cx - 11 + legA, y + 90 + bob, 7, 3, neonTeal);
-  rect(ctx, cx + 9 + legB, y + 91 + bob, 7, 3, neonTeal);
+  rect(ctx, cx - 26 + legA, y + 142 + bob, 18, 42, "#090f17");
+  rect(ctx, cx - 20 + legA, y + 150 + bob, 10, 24, "#1e2d38");
+  rect(ctx, cx + 10 + legB, y + 140 + bob, 18, 46, "#0d1420");
+  rect(ctx, cx + 14 + legB, y + 148 + bob, 10, 26, "#263746");
+  rect(ctx, cx - 28 + legA, y + 182 + bob, 32, 12, "#080c13");
+  rect(ctx, cx + 4 + legB, y + 184 + bob, 34, 10, "#080c13");
+  rect(ctx, cx - 22 + legA, y + 180 + bob, 14, 6, neonTeal);
+  rect(ctx, cx + 18 + legB, y + 182 + bob, 14, 6, neonTeal);
 
   polygon(ctx, [
-    [cx - 20 + lean, torsoY + 2],
-    [cx - 7 + lean, torsoY - 3],
-    [cx + 17 + lean, torsoY + 3],
-    [cx + 14 + lean, torsoY + 35],
-    [cx - 17 + lean, torsoY + 37],
+    [cx - 40 + lean, torsoY + 4],
+    [cx - 14 + lean, torsoY - 6],
+    [cx + 34 + lean, torsoY + 6],
+    [cx + 28 + lean, torsoY + 70],
+    [cx - 34 + lean, torsoY + 74],
   ], "#060a11");
-  rect(ctx, cx - 18 + lean, torsoY + 7, 33, 29, armorShade);
-  rect(ctx, cx - 13 + lean, torsoY + 10, 21, 22, armorMid);
-  rect(ctx, cx - 3 + lean, torsoY + 8, 5, 27, "#05080d");
-  rect(ctx, cx - 17 + lean, torsoY + 35, 33, 4, "#222d3a");
-  rect(ctx, cx - 20 + lean, torsoY + 12, 6, 19, "#0f1722");
-  rect(ctx, cx + 10 + lean, torsoY + 10, 5, 23, neonTeal);
-  rect(ctx, cx - 8 + lean, torsoY + 13, 5, 4, "#d7fff8");
-  rect(ctx, cx + 2 + lean, torsoY + 17, 4, 4, "#e9fff9");
+  rect(ctx, cx - 36 + lean, torsoY + 14, 66, 58, armorShade);
+  rect(ctx, cx - 26 + lean, torsoY + 20, 42, 44, armorMid);
+  rect(ctx, cx - 6 + lean, torsoY + 16, 10, 54, "#05080d");
+  rect(ctx, cx - 34 + lean, torsoY + 70, 66, 8, "#222d3a");
+  rect(ctx, cx - 40 + lean, torsoY + 24, 12, 38, "#0f1722");
+  rect(ctx, cx + 20 + lean, torsoY + 20, 10, 46, neonTeal);
+  rect(ctx, cx - 16 + lean, torsoY + 26, 10, 8, "#d7fff8");
+  rect(ctx, cx + 4 + lean, torsoY + 34, 8, 8, "#e9fff9");
 
   if (front) {
-    rect(ctx, cx - 24 + lean, torsoY + 8, 10, 14, plate);
-    rect(ctx, cx + 12 + lean, torsoY + 8, 10, 13, "#7c1b35");
+    rect(ctx, cx - 48 + lean, torsoY + 16, 20, 28, plate);
+    rect(ctx, cx + 24 + lean, torsoY + 16, 20, 26, "#7c1b35");
   } else {
-    rect(ctx, cx - 22 + lean, torsoY + 10, 8, 16, "#68182d");
-    rect(ctx, cx + 12 + lean, torsoY + 9, 8, 15, "#3a1320");
+    rect(ctx, cx - 44 + lean, torsoY + 20, 16, 32, "#68182d");
+    rect(ctx, cx + 24 + lean, torsoY + 18, 16, 30, "#3a1320");
   }
 
   if (attackPulse >= 0) {
-    const reach = 25 + attackPulse * 13;
+    const reach = 50 + attackPulse * 26;
     strokePixelLine(
       ctx,
-      cx + side * 6,
-      torsoY + 18,
-      cx + dir.x * reach + side * 14,
-      torsoY + 18 + dir.y * reach * 0.55,
+      cx + side * 12,
+      torsoY + 36,
+      cx + dir.x * reach + side * 28,
+      torsoY + 36 + dir.y * reach * 0.55,
       attackPulse === 1 ? "#ffffff" : neonTeal,
-      attackPulse === 1 ? 5 : 3,
+      attackPulse === 1 ? 10 : 6,
     );
     strokePixelLine(
       ctx,
-      cx + side * 2,
-      torsoY + 22,
-      cx + dir.x * (reach + 12),
-      torsoY + 22 + dir.y * reach * 0.5,
+      cx + side * 4,
+      torsoY + 44,
+      cx + dir.x * (reach + 24),
+      torsoY + 44 + dir.y * reach * 0.5,
       neonRed,
-      2,
+      4,
     );
   } else {
-    rect(ctx, cx - 30 + lean - aimSide * 2, torsoY + 18, 13, 7, "#070b12");
-    rect(ctx, cx - 31 + lean - aimSide * 2, torsoY + 15, 8, 9, plate);
-    rect(ctx, cx + 15 + lean + aimSide * 2, torsoY + 14, 17, 6, "#070b12");
-    rect(ctx, cx + 21 + lean + aimSide * 2, torsoY + 12, 7, 8, "#711a31");
+    rect(ctx, cx - 60 + lean - aimSide * 4, torsoY + 36, 26, 14, "#070b12");
+    rect(ctx, cx - 62 + lean - aimSide * 4, torsoY + 30, 16, 18, plate);
+    rect(ctx, cx + 30 + lean + aimSide * 4, torsoY + 28, 34, 12, "#070b12");
+    rect(ctx, cx + 42 + lean + aimSide * 4, torsoY + 24, 14, 16, "#711a31");
+    
+    // Fingers on left hand
+    rect(ctx, cx - 66 + lean - aimSide * 4, torsoY + 38, 6, 4, "#263746");
+    rect(ctx, cx - 66 + lean - aimSide * 4, torsoY + 42, 5, 3, "#263746");
+    rect(ctx, cx - 64 + lean - aimSide * 4, torsoY + 46, 4, 3, "#263746");
+    
+    // Fingers on right hand
+    rect(ctx, cx + 54 + lean + aimSide * 4, torsoY + 30, 4, 5, "#263746");
+    rect(ctx, cx + 56 + lean + aimSide * 4, torsoY + 26, 3, 4, "#263746");
+    rect(ctx, cx + 58 + lean + aimSide * 4, torsoY + 34, 3, 4, "#263746");
+
     strokePixelLine(
       ctx,
-      cx + lean + aimSide * 6,
-      torsoY + 24,
-      cx + lean + aimSide * 30,
-      torsoY + 17 + dir.y * 8,
+      cx + lean + aimSide * 12,
+      torsoY + 48,
+      cx + lean + aimSide * 60,
+      torsoY + 34 + dir.y * 16,
       "#111923",
-      3,
+      6,
     );
-    strokePixelLine(ctx, cx + lean + aimSide * 9, torsoY + 23, cx + lean + aimSide * 30, torsoY + 17 + dir.y * 8, neonRed, 1);
+    strokePixelLine(ctx, cx + lean + aimSide * 18, torsoY + 46, cx + lean + aimSide * 60, torsoY + 34 + dir.y * 16, neonRed, 2);
   }
 
   polygon(ctx, [
-    [cx - 15 + hoodLean, headY + 3],
-    [cx - 9 + hoodLean, headY - 7],
-    [cx + 8 + hoodLean, headY - 6],
-    [cx + 15 + hoodLean, headY + 4],
-    [cx + 9 + hoodLean, headY + 20],
-    [cx - 10 + hoodLean, headY + 19],
+    [cx - 30 + hoodLean, headY + 6],
+    [cx - 18 + hoodLean, headY - 14],
+    [cx + 16 + hoodLean, headY - 12],
+    [cx + 30 + hoodLean, headY + 8],
+    [cx + 18 + hoodLean, headY + 40],
+    [cx - 20 + hoodLean, headY + 38],
   ], "#060a10");
-  rect(ctx, cx - 10 + hoodLean, headY + 2, 19, 15, cloth);
-  rect(ctx, cx - 7 + hoodLean, headY + 5, 13, 8, "#101923");
-  rect(ctx, cx - 5 + hoodLean + aimSide * 2, headY + 7, 10, 3, visor);
-  rect(ctx, cx + hoodLean + aimSide * 7, headY + 9, 4, 3, "#eaffff");
-  rect(ctx, cx - 11 + hoodLean, headY + 16, 22, 5, "#111925");
-  rect(ctx, cx - 13 + hoodLean, headY + 2, 3, 14, "#263642");
+  rect(ctx, cx - 20 + hoodLean, headY + 4, 38, 30, cloth);
+  rect(ctx, cx - 14 + hoodLean, headY + 10, 26, 16, "#101923");
+  rect(ctx, cx - 10 + hoodLean + aimSide * 4, headY + 14, 20, 6, visor);
+  rect(ctx, cx + hoodLean + aimSide * 14, headY + 18, 8, 6, "#eaffff");
+  rect(ctx, cx - 22 + hoodLean, headY + 32, 44, 10, "#111925");
+  rect(ctx, cx - 26 + hoodLean, headY + 4, 6, 28, "#263642");
 
   if (direction.includes("n")) {
-    rect(ctx, cx - 4 + lean, torsoY + 1, 8, 42, neonTeal);
-    rect(ctx, cx - 18 + hoodLean, headY + 1, 36, 9, "#05080d");
-    rect(ctx, cx - 12 + lean, torsoY + 10, 24, 18, "#111a25");
+    rect(ctx, cx - 8 + lean, torsoY + 2, 16, 84, neonTeal);
+    rect(ctx, cx - 36 + hoodLean, headY + 2, 72, 18, "#05080d");
+    rect(ctx, cx - 24 + lean, torsoY + 20, 48, 36, "#111a25");
   }
 
   if (direction.includes("s")) {
-    rect(ctx, cx - 7 + lean, torsoY + 6, 14, 20, "#0e1721");
-    rect(ctx, cx - 5 + lean, torsoY + 9, 4, 14, neonTeal);
-    rect(ctx, cx + 3 + lean, torsoY + 9, 4, 14, neonRed);
-    rect(ctx, cx - 12 + hoodLean, headY + 7, 24, 5, "#17222d");
-    rect(ctx, cx - 5 + hoodLean + aimSide * 2, headY + 8, 11, 2, visor);
+    rect(ctx, cx - 14 + lean, torsoY + 12, 28, 40, "#0e1721");
+    rect(ctx, cx - 10 + lean, torsoY + 18, 8, 28, neonTeal);
+    rect(ctx, cx + 6 + lean, torsoY + 18, 8, 28, neonRed);
+    rect(ctx, cx - 24 + hoodLean, headY + 14, 48, 10, "#17222d");
+    rect(ctx, cx - 10 + hoodLean + aimSide * 4, headY + 16, 22, 4, visor);
   }
 }
 
@@ -329,48 +339,48 @@ function drawDroneSheetFrame(
 ): void {
   const dir = directionVector(direction);
   const side = Math.sign(dir.x);
-  const cx = x + 48;
-  const cy = y + 58 + (action === "run" ? Math.sin(frame * Math.PI) * 2 : 0);
-  const wing = action === "idle" ? (frame === 0 ? 0 : 2) : [-7, 4, 7, -4][frame % 4] ?? 0;
+  const cx = x + 96;
+  const cy = y + 116 + (action === "run" ? Math.sin(frame * Math.PI) * 4 : 0);
+  const wing = action === "idle" ? (frame === 0 ? 0 : 4) : [-14, 8, 14, -8][frame % 4] ?? 0;
   const attack = action === "attack";
   const dash = action === "dash";
 
-  rect(ctx, cx - 28, y + 87, 56, 7, "rgba(2, 5, 9, 0.42)");
+  rect(ctx, cx - 56, y + 174, 112, 14, "rgba(2, 5, 9, 0.42)");
   if (dash) {
-    rect(ctx, cx - side * (42 + frame * 8), cy - 3, 34, 4, "rgba(96, 255, 211, 0.4)");
+    rect(ctx, cx - side * (84 + frame * 16), cy - 6, 68, 8, "rgba(96, 255, 211, 0.4)");
   }
 
   ctx.fillStyle = "#05090f";
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 22);
-  ctx.lineTo(cx + 30 + wing + side * 4, cy);
-  ctx.lineTo(cx, cy + 22);
-  ctx.lineTo(cx - 30 - wing + side * 4, cy);
+  ctx.moveTo(cx, cy - 44);
+  ctx.lineTo(cx + 60 + wing + side * 8, cy);
+  ctx.lineTo(cx, cy + 44);
+  ctx.lineTo(cx - 60 - wing + side * 8, cy);
   ctx.closePath();
   ctx.fill();
 
   ctx.fillStyle = "#20384a";
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 14);
-  ctx.lineTo(cx + 22 + wing, cy);
-  ctx.lineTo(cx, cy + 14);
+  ctx.moveTo(cx, cy - 28);
+  ctx.lineTo(cx + 44 + wing, cy);
+  ctx.lineTo(cx, cy + 28);
   ctx.closePath();
   ctx.fill();
 
   ctx.fillStyle = "#132331";
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 14);
-  ctx.lineTo(cx - 22 - wing, cy);
-  ctx.lineTo(cx, cy + 14);
+  ctx.moveTo(cx, cy - 28);
+  ctx.lineTo(cx - 44 - wing, cy);
+  ctx.lineTo(cx, cy + 28);
   ctx.closePath();
   ctx.fill();
 
-  rect(ctx, cx - 7 + dir.x * 4, cy - 4 + dir.y * 2, 14, 7, attack ? "#ffffff" : "#ff2c54");
-  strokePixelLine(ctx, cx - 34 - wing, cy, cx - 45 - wing, cy + 12, "#ffcf66", 2);
-  strokePixelLine(ctx, cx + 34 + wing, cy, cx + 45 + wing, cy + 12, "#60ffd3", 2);
+  rect(ctx, cx - 14 + dir.x * 8, cy - 8 + dir.y * 4, 28, 14, attack ? "#ffffff" : "#ff2c54");
+  strokePixelLine(ctx, cx - 68 - wing, cy, cx - 90 - wing, cy + 24, "#ffcf66", 4);
+  strokePixelLine(ctx, cx + 68 + wing, cy, cx + 90 + wing, cy + 24, "#60ffd3", 4);
 
   if (attack) {
-    strokePixelLine(ctx, cx, cy, cx + dir.x * (34 + frame * 7), cy + dir.y * (22 + frame * 5), "#ff2c54", 4);
+    strokePixelLine(ctx, cx, cy, cx + dir.x * (68 + frame * 14), cy + dir.y * (44 + frame * 10), "#ff2c54", 8);
   }
 }
 
@@ -393,8 +403,8 @@ function createActorSheet(
   const columns = Object.values(SPRITE_ACTIONS).reduce((total, count) => total + count, 0);
   const texture = scene.textures.createCanvas(
     key,
-    ACTOR_FRAME_WIDTH * ACTOR_ART_SCALE * columns,
-    ACTOR_FRAME_HEIGHT * ACTOR_ART_SCALE * SPRITE_DIRECTIONS.length,
+    ACTOR_FRAME_WIDTH * columns,
+    ACTOR_FRAME_HEIGHT * SPRITE_DIRECTIONS.length,
   );
 
   if (!texture) {
@@ -410,22 +420,16 @@ function createActorSheet(
       for (let frame = 0; frame < count; frame += 1) {
         const x = (offset + frame) * ACTOR_FRAME_WIDTH;
         const y = row * ACTOR_FRAME_HEIGHT;
-        const sourceX = x * ACTOR_ART_SCALE;
-        const sourceY = y * ACTOR_ART_SCALE;
 
-        ctx.save();
-        ctx.translate(sourceX, sourceY);
-        ctx.scale(ACTOR_ART_SCALE, ACTOR_ART_SCALE);
-        drawFrame(ctx, 0, 0, direction, action, frame);
-        ctx.restore();
+        drawFrame(ctx, x, y, direction, action, frame);
 
         texture.add(
           `${action}-${direction}-${frame}`,
           0,
-          sourceX,
-          sourceY,
-          ACTOR_FRAME_WIDTH * ACTOR_ART_SCALE,
-          ACTOR_FRAME_HEIGHT * ACTOR_ART_SCALE,
+          x,
+          y,
+          ACTOR_FRAME_WIDTH,
+          ACTOR_FRAME_HEIGHT,
         );
       }
     });
