@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { GAME_HEIGHT, GAME_WIDTH, SCENES } from "../constants";
-import { ACTOR_ART_SCALE, PLAYER_SHEET_KEY, spriteFrameName } from "../generated-art";
+import { ACTOR_DISPLAY_SCALE, PLAYER_SHEET_KEY, spriteFrameName } from "../generated-art";
 import { playBackgroundMusic } from "../music";
 
 export class ShopScene extends Phaser.Scene {
@@ -58,7 +58,7 @@ export class ShopScene extends Phaser.Scene {
     const avatarShadow = this.add.image(-36, 48, "qf-shadow").setScale(1.05, 0.72).setAlpha(0.52);
     const avatar = this.add
       .image(-36, -4, PLAYER_SHEET_KEY, spriteFrameName("idle", "se", 0))
-      .setScale(1.9 / ACTOR_ART_SCALE);
+      .setScale(1.9 * ACTOR_DISPLAY_SCALE);
     const terminal = this.add.image(112, 0, "qf-terminal").setScale(1.5);
     platform.add([dais, avatarShadow, avatar, terminal]);
 
