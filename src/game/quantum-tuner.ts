@@ -15,12 +15,6 @@ export type SnapshotCooldowns = {
   ranged: number;
 };
 
-export type SnapshotCacheFlags = {
-  dash: boolean;
-  melee: boolean;
-  ranged: boolean;
-};
-
 export interface ArenaRunStateSnapshotRecord {
   computeCurrent: number;
   allotmentCurrent: number;
@@ -29,7 +23,6 @@ export interface ArenaRunStateSnapshotRecord {
   extractionReady?: boolean;
   notice: string;
   arenaPrompt: string;
-  computeRegenDelayRemainingMs: number;
 }
 
 export interface PlayerArenaSnapshot {
@@ -43,7 +36,6 @@ export interface PlayerArenaSnapshot {
   rangedMovementPauseTimer: number;
   playerAttackTimer: number;
   cooldowns: SnapshotCooldowns;
-  cacheDiscountBlocked: SnapshotCacheFlags;
 }
 
 export interface EnemyArenaSnapshot {

@@ -16,7 +16,6 @@ function makeResumeSnapshot() {
         extractionReady: true,
         notice: "Checkpoint restored.",
         arenaPrompt: "Resume fight.",
-        computeRegenDelayRemainingMs: 300,
       },
       computeCycle: startActiveWindow(createStarterComputeCycle(11), 96),
       player: {
@@ -33,11 +32,6 @@ function makeResumeSnapshot() {
           dash: 120,
           melee: 30,
           ranged: 400,
-        },
-        cacheDiscountBlocked: {
-          dash: false,
-          melee: true,
-          ranged: false,
         },
       },
       arenaCleared: false,
@@ -61,19 +55,17 @@ test("buyQuantumTuner spends compute credits and clamps current compute", () => 
   assert.equal(state.computeCurrent, 270);
 });
 
-test("refundAllotment restores only compute credits and preserves rate-limit recovery state", () => {
+test("refundAllotment restores only compute credits", () => {
   const state = new RunState();
   state.beginArena();
   assert.equal(state.spend(40), true);
 
-  const regenDelayBeforeRefund = state.createArenaSnapshot().computeRegenDelayRemainingMs;
   const computeBeforeRefund = state.computeCurrent;
   const refunded = state.refundAllotment(18);
 
   assert.equal(refunded, 18);
   assert.equal(state.computeCurrent, computeBeforeRefund);
   assert.equal(state.allotmentCurrent, state.startingAllotment - 22);
-  assert.equal(state.createArenaSnapshot().computeRegenDelayRemainingMs, regenDelayBeforeRefund);
 });
 
 test("refundAllotment clamps to max compute credits without restoring rate limit", () => {
@@ -185,30 +177,6 @@ test("buyAllotment charges the round-scaled bundle cost", () => {
   assert.equal(state.allotmentCurrent, 1360);
 });
 
-test("arena snapshots preserve and restore regen delay timing", () => {
-  const source = new RunState();
-  source.beginArena();
-  assert.equal(source.spend(24), true);
-  source.regenerate(300);
-
-  const snapshot = source.createArenaSnapshot();
-  assert.equal(snapshot.computeRegenDelayRemainingMs, 420);
-
-  const restored = new RunState();
-  restored.beginArena();
-  restored.restoreArenaSnapshot(snapshot);
-
-  const beforeRegen = restored.computeCurrent;
-  restored.regenerate(419);
-  assert.equal(restored.computeCurrent, beforeRegen);
-
-  restored.regenerate(1);
-  assert.equal(restored.computeCurrent, beforeRegen);
-
-  restored.regenerate(100);
-  assert.ok(restored.computeCurrent > beforeRegen);
-});
-
 test("empty rate limit does not throttle movement or vision while compute credits remain funded", () => {
   const state = new RunState();
   state.computeCurrent = 0;
@@ -246,7 +214,6 @@ test("startNewRun resets progression to the base procurement loadout", () => {
   assert.equal(state.integrityCurrent, state.integrityMax);
   assert.equal(state.allotmentCurrent, state.startingAllotment);
   assert.equal(state.credits, state.startingCredits);
-  assert.equal(state.computeRateLimitUpgrades, 0);
   assert.equal(state.quantumTuners, state.startingQuantumTuners);
   assert.equal(state.runHistory.length, 1);
 });
@@ -304,7 +271,6 @@ test("manual end records a summary without adding extra rewards", () => {
   assert.equal(summary?.roundsFinished, 3);
   assert.equal(summary?.kills, 11);
   assert.equal(summary?.quantumTunersUsed, 2);
-  assert.equal(summary?.computeRateLimitUpgradesGained, 0);
   assert.equal(state.credits, 140);
   assert.equal(state.runActive, false);
   assert.equal(state.runHistory.length, 1);
@@ -338,7 +304,6 @@ test("quantum tuner usage is captured in the ended run summary", () => {
   const summary = state.endRun("manual");
 
   assert.equal(summary?.quantumTunersUsed, 1);
-  assert.equal(summary?.computeRateLimitUpgradesGained, 0);
 });
 
 test("scoreboard ranking sorts by rounds then kills then recency and includes the active run", () => {

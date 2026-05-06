@@ -22,7 +22,6 @@ function createSnapshot(seed: number, overrides: Partial<ArenaSnapshot> = {}): A
       kills: seed,
       notice: `note-${seed}`,
       arenaPrompt: `prompt-${seed}`,
-      computeRegenDelayRemainingMs: seed * 10,
     },
     computeCycle: startActiveWindow(createStarterComputeCycle(seed + 1), 96),
     player: {
@@ -36,7 +35,6 @@ function createSnapshot(seed: number, overrides: Partial<ArenaSnapshot> = {}): A
       rangedMovementPauseTimer: 0,
       playerAttackTimer: 0,
       cooldowns: ABILITY_COOLDOWNS_MS,
-      cacheDiscountBlocked: { dash: false, melee: false, ranged: false },
     },
     arenaCleared: false,
     projectiles: [
