@@ -1636,8 +1636,8 @@ export class ArenaScene extends Phaser.Scene {
     affected.forEach((drone) => {
       if (drone !== impacted) {
         const splashAngle = Phaser.Math.Angle.Between(impactX, impactY, drone.sprite.x, drone.sprite.y);
-        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0);
         this.pullDroneTowardPoint(drone, impactX, impactY, RANGED_PULL_FORCE);
+        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0);
       }
     });
 
@@ -1650,6 +1650,10 @@ export class ArenaScene extends Phaser.Scene {
 
   private pullDroneTowardPoint(drone: EnemyUnit, targetX: number, targetY: number, force: number): void {
     const body = drone.sprite.body as Phaser.Physics.Arcade.Body;
+    if (!body) {
+      return;
+    }
+
     const toImpact = new Phaser.Math.Vector2(targetX - drone.sprite.x, targetY - drone.sprite.y);
     const distance = toImpact.length();
     if (distance <= 0.001) {
