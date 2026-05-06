@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ABILITY_COOLDOWNS_MS } from "./combat.ts";
+import { createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
 import {
   extractHistoryRange,
   getCollapseAvailability,
@@ -23,6 +24,7 @@ function createSnapshot(seed: number, overrides: Partial<ArenaSnapshot> = {}): A
       arenaPrompt: `prompt-${seed}`,
       computeRegenDelayRemainingMs: seed * 10,
     },
+    computeCycle: startActiveWindow(createStarterComputeCycle(seed + 1), 96),
     player: {
       position: { x: 100 + seed, y: 200 + seed },
       velocity: { x: seed, y: seed * 2 },
@@ -168,4 +170,18 @@ test("stored snapshots keep exact restore shape and do not leak newer timeline m
   assert.equal(selected.snapshot.projectiles[0].ttl, 1.2);
   assert.equal(selected.snapshot.enemies[0].hp, 44);
   assert.equal(selected.snapshot.enemies[1].alive, false);
+});
+
+test("stored snapshots clone compute cycle deck state for collapse and resume", () => {
+  const source = createSnapshot(2);
+  source.computeCycle.discardPile.push(source.computeCycle.queues.melee[0]);
+  const history = recordArenaSnapshot([], source, 3_000);
+
+  source.computeCycle.phase = "preparing";
+  source.computeCycle.queues.melee = [];
+  source.computeCycle.discardPile = [];
+
+  assert.equal(history[0].snapshot.computeCycle.phase, "active");
+  assert.equal(history[0].snapshot.computeCycle.discardPile.length, 1);
+  assert.equal(history[0].snapshot.computeCycle.queues.melee.length > 0, true);
 });

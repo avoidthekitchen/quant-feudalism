@@ -16,8 +16,8 @@
           <h1>Quant Feudalism</h1>
           <p class="deck">
             Sterile corporate cyber-feudalism rendered as a combat procurement
-            ritual. Spend your Compute Rate Limit, burn finite Compute Credits,
-            and buy your way back into motion.
+            ritual. Cycle your attack queues, burn finite Compute Credits, and
+            buy your way back into motion.
           </p>
         </section>
 
@@ -36,8 +36,8 @@
           <ul class="control-list">
             <li><span>Move</span><strong>W A S D</strong></li>
             <li><span>Dash</span><strong>Space</strong></li>
-            <li><span>Melee</span><strong>Left Click</strong></li>
-            <li><span>Ranged</span><strong>Right Click</strong></li>
+            <li><span>Statement</span><strong>Left Click</strong></li>
+            <li><span>Function</span><strong>Right Click</strong></li>
             <li><span>Collapse</span><strong>Q</strong></li>
             <li><span>Extract</span><strong>F on Gate</strong></li>
           </ul>
@@ -105,33 +105,25 @@
                   </button>
                 </div>
                 <p class="shop-copy">
-                  Compute Credits are sold in rationed tranches. Every ability spends
-                  from the regenerating Compute Rate Limit and the purchased Compute
-                  Credits beneath it.
+                  Compute Credits are sold in rationed tranches. Statement and Function
+                  Attack Cards spend from the Compute Rate Limit and the purchased
+                  Compute Credits beneath it.
                 </p>
                 <div class="bundle-grid">
-                  <button class="shop-button" data-amount="720" data-cost="20">
+                  <button class="shop-button" data-amount="360" data-cost="60">
                     <span>Minor Refill</span>
-                    <strong>+720 Compute Credits</strong>
-                    <em>20 shop credits</em>
+                    <strong>+360 Compute Credits</strong>
+                    <em>60 bug bounty credits</em>
                   </button>
-                  <button class="shop-button" data-amount="1440" data-cost="38">
+                  <button class="shop-button" data-amount="540" data-cost="84">
                     <span>Corporate Slice</span>
-                    <strong>+1440 Compute Credits</strong>
-                    <em>38 shop credits</em>
+                    <strong>+540 Compute Credits</strong>
+                    <em>84 bug bounty credits</em>
                   </button>
-                  <button class="shop-button" data-amount="2400" data-cost="58">
+                  <button class="shop-button" data-amount="900" data-cost="126">
                     <span>Dynasty Reserve</span>
-                    <strong>+2400 Compute Credits</strong>
-                    <em>58 shop credits</em>
-                  </button>
-                </div>
-
-                <div class="shop-actions">
-                  <button id="rate-limit-button" class="shop-button">
-                    <span>Increase Rate Limit</span>
-                    <strong id="rate-limit-label">+16 Compute Rate Limit</strong>
-                    <em id="rate-limit-cost-label">42 shop credits</em>
+                    <strong>+900 Compute Credits</strong>
+                    <em>126 bug bounty credits</em>
                   </button>
                 </div>
               </aside>
@@ -260,11 +252,11 @@
 
             <div class="metric-grid">
               <div class="shop-only">
-                <span class="metric-kicker">Shop Credits</span>
+                <span class="metric-kicker">Bug Bounty Credits</span>
                 <strong id="credits-label">0</strong>
               </div>
               <div>
-                <span class="metric-kicker">Throttle</span>
+                <span class="metric-kicker">Credit State</span>
                 <strong id="throttle-label">Nominal</strong>
               </div>
               <div>

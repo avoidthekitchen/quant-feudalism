@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getScaledShopBundleCost } from "./constants.ts";
+import { createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
 import { RunState } from "./state.ts";
 
 function makeResumeSnapshot() {
@@ -16,6 +18,7 @@ function makeResumeSnapshot() {
         arenaPrompt: "Resume fight.",
         computeRegenDelayRemainingMs: 300,
       },
+      computeCycle: startActiveWindow(createStarterComputeCycle(11), 96),
       player: {
         position: { x: 120, y: 240 },
         velocity: { x: 8, y: -3 },
@@ -86,6 +89,31 @@ test("refundAllotment clamps to max compute credits without restoring rate limit
   assert.equal(state.computeCurrent, 12);
 });
 
+test("spend refuses unaffordable card costs without creating compute debt", () => {
+  const state = new RunState();
+  state.computeCurrent = 17;
+  state.allotmentCurrent = 100;
+
+  assert.equal(state.canUseAbility(18), false);
+  assert.equal(state.spend(18), false);
+  assert.equal(state.computeCurrent, 17);
+  assert.equal(state.allotmentCurrent, 100);
+
+  state.computeCurrent = 18;
+  state.allotmentCurrent = 17;
+
+  assert.equal(state.canUseAbility(18), false);
+  assert.equal(state.spend(18), false);
+  assert.equal(state.computeCurrent, 18);
+  assert.equal(state.allotmentCurrent, 17);
+
+  state.allotmentCurrent = 18;
+
+  assert.equal(state.spend(18), true);
+  assert.equal(state.computeCurrent, 0);
+  assert.equal(state.allotmentCurrent, 0);
+});
+
 test("buyQuantumTuner fails when the rack is already full", () => {
   const state = new RunState();
   state.quantumTuners = state.quantumTunerCap;
@@ -124,10 +152,37 @@ test("banked tuner charges persist through arena entry and exit", () => {
   assert.equal(state.quantumTuners, 2);
 });
 
+test("new arena deployments discard stale resume checkpoints", () => {
+  const state = new RunState();
+  state.saveArenaResume(makeResumeSnapshot());
+
+  state.beginArena();
+
+  assert.equal(state.getSavedArenaResume(), null);
+});
+
 test("player starts with one quantum tuner charge", () => {
   const state = new RunState();
 
   assert.equal(state.quantumTuners, 1);
+});
+
+test("shop Compute Credit bundle costs compound by seven and a half percent after cleared rounds", () => {
+  assert.equal(getScaledShopBundleCost(60, 0), 60);
+  assert.equal(getScaledShopBundleCost(60, 1), 65);
+  assert.equal(getScaledShopBundleCost(60, 2), 70);
+  assert.equal(getScaledShopBundleCost(60, 10), 124);
+});
+
+test("buyAllotment charges the round-scaled bundle cost", () => {
+  const state = new RunState();
+  state.roundsFinished = 3;
+  state.credits = 75;
+  state.allotmentCurrent = 1000;
+
+  assert.equal(state.buyAllotment(360, 60), true);
+  assert.equal(state.credits, 0);
+  assert.equal(state.allotmentCurrent, 1360);
 });
 
 test("arena snapshots preserve and restore regen delay timing", () => {
@@ -154,12 +209,31 @@ test("arena snapshots preserve and restore regen delay timing", () => {
   assert.ok(restored.computeCurrent > beforeRegen);
 });
 
+test("empty rate limit does not throttle movement or vision while compute credits remain funded", () => {
+  const state = new RunState();
+  state.computeCurrent = 0;
+  state.allotmentCurrent = state.startingAllotment;
+
+  assert.equal(state.getMovementMultiplier(), 1);
+  assert.equal(state.getVisionBlurStrength(), 0);
+  assert.equal(state.getThrottleLabel(), "Nominal");
+});
+
+test("exhausted compute credits slow movement and impair vision", () => {
+  const state = new RunState();
+  state.computeCurrent = state.computeMax;
+  state.allotmentCurrent = 0;
+
+  assert.ok(state.getMovementMultiplier() < 1);
+  assert.ok(state.getVisionBlurStrength() > 0);
+  assert.equal(state.getThrottleLabel(), "Seized");
+});
+
 test("startNewRun resets progression to the base procurement loadout", () => {
   const state = new RunState();
   state.beginArena();
   state.registerKill();
   state.finishArena("cleared", "Round one.");
-  assert.equal(state.upgradeComputeRateLimit(), true);
   assert.equal(state.consumeQuantumTuner(), true);
   state.endRun("manual");
 
@@ -184,7 +258,7 @@ test("new runs start with the tighter compute credit allotment", () => {
   assert.equal(state.allotmentCurrent, 1360);
 });
 
-test("new runs start with the reduced shop credit buffer", () => {
+test("new runs start with the reduced bug bounty credit buffer", () => {
   const state = new RunState();
 
   assert.equal(state.startingCredits, 30);
@@ -209,20 +283,28 @@ test("multiple arena deployments accumulate run rounds and kills", () => {
   assert.equal(state.sceneMode, "shop");
 });
 
+test("cleared arena notes mention Compute Credit price increases", () => {
+  const state = new RunState();
+
+  state.beginArena();
+  state.finishArena("cleared", "Cleared.");
+
+  assert.match(state.notice, /Compute Credit refill prices increased by 7.5%/);
+});
+
 test("manual end records a summary without adding extra rewards", () => {
   const state = new RunState();
   state.credits = 140;
   state.roundsFinished = 3;
   state.runKills = 11;
   state.quantumTunersUsedThisRun = 2;
-  state.computeRateLimitUpgradesThisRun = 1;
 
   const summary = state.endRun("manual");
 
   assert.equal(summary?.roundsFinished, 3);
   assert.equal(summary?.kills, 11);
   assert.equal(summary?.quantumTunersUsed, 2);
-  assert.equal(summary?.computeRateLimitUpgradesGained, 1);
+  assert.equal(summary?.computeRateLimitUpgradesGained, 0);
   assert.equal(state.credits, 140);
   assert.equal(state.runActive, false);
   assert.equal(state.runHistory.length, 1);
@@ -246,18 +328,17 @@ test("bankruptcy only ends a run when integrity is gone and repair is unaffordab
   assert.equal(bankruptState.runActive, false);
 });
 
-test("quantum tuner usage and upgrades are captured in the ended run summary", () => {
+test("quantum tuner usage is captured in the ended run summary", () => {
   const state = new RunState();
   state.credits = 500;
   state.allotmentCurrent = 1000;
 
-  assert.equal(state.upgradeComputeRateLimit(), true);
   assert.equal(state.consumeQuantumTuner(), true);
 
   const summary = state.endRun("manual");
 
   assert.equal(summary?.quantumTunersUsed, 1);
-  assert.equal(summary?.computeRateLimitUpgradesGained, 1);
+  assert.equal(summary?.computeRateLimitUpgradesGained, 0);
 });
 
 test("scoreboard ranking sorts by rounds then kills then recency and includes the active run", () => {
@@ -377,7 +458,7 @@ test("serialize and hydrate round-trip shop state and run history", () => {
   assert.deepEqual(restored.serialize(), source.serialize());
 });
 
-test("hydrate returns interrupted arena saves to shop with resource losses preserved", () => {
+test("hydrate restores interrupted arena saves with checkpoint state preserved", () => {
   const source = new RunState();
   source.roundsFinished = 3;
   source.runKills = 11;
@@ -389,18 +470,17 @@ test("hydrate returns interrupted arena saves to shop with resource losses prese
   const restored = new RunState();
   restored.hydrate(source.serialize());
 
-  assert.equal(restored.sceneMode, "shop");
-  assert.equal(restored.getCurrentRunKills(), 11);
+  assert.equal(restored.sceneMode, "arena");
+  assert.equal(restored.getCurrentRunKills(), 13);
   assert.equal(restored.roundsFinished, 3);
   assert.equal(restored.allotmentCurrent, 900);
   assert.equal(restored.integrityCurrent, 76);
-  assert.equal(restored.kills, 0);
-  assert.equal(restored.extractionReady, false);
-  assert.equal(restored.getSavedArenaResume(), null);
-  assert.match(restored.notice, /interrupted during deployment/i);
+  assert.equal(restored.kills, 2);
+  assert.equal(restored.extractionReady, true);
+  assert.equal(restored.getSavedArenaResume()?.snapshot.computeCycle.queues.melee.length, makeResumeSnapshot().snapshot.computeCycle.queues.melee.length);
 });
 
-test("hydrate ignores saved arena resume data instead of resuming mid-arena", () => {
+test("hydrate accepts legacy arena resume data with missing extraction flag", () => {
   const source = new RunState();
   source.beginArena();
   source.saveArenaResume(makeResumeSnapshot());
@@ -415,17 +495,16 @@ test("hydrate ignores saved arena resume data instead of resuming mid-arena", ()
         },
       },
     },
-  } as ReturnType<RunState["serialize"]> & { extractionReady?: boolean };
+  } as Omit<ReturnType<RunState["serialize"]>, "extractionReady"> & { extractionReady?: boolean };
   delete legacyState.extractionReady;
   delete (legacyState.savedArenaResume!.snapshot.runState as { extractionReady?: boolean }).extractionReady;
 
   const restored = new RunState();
   restored.hydrate(legacyState);
 
-  assert.equal(restored.sceneMode, "shop");
+  assert.equal(restored.sceneMode, "arena");
   assert.equal(restored.extractionReady, false);
-  assert.equal(restored.getSavedArenaResume(), null);
-  assert.match(restored.notice, /interrupted during deployment/i);
+  assert.equal(restored.getSavedArenaResume()?.snapshot.runState.extractionReady, undefined);
 });
 
 test("hydrate ignores malformed arena checkpoint data and returns to shop", () => {

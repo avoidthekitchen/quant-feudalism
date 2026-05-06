@@ -3,14 +3,25 @@ import { SCENES } from "../constants";
 import {
   ABILITY_COOLDOWNS_MS,
   calculateRangedSiphonRefund,
-  getCachedAbilityCost,
-  getCacheWindowRatio,
   getCooldownProgress,
-  isCacheWindowOpen,
+  MELEE_DAMAGE,
+  RANGED_DIRECT_DAMAGE,
   RANGED_PULL_FORCE,
   RANGED_PULL_RADIUS,
+  RANGED_PROJECTILE_SPEED,
+  RANGED_SPLASH_DAMAGE,
   type CombatAbilityAction,
 } from "../combat";
+import {
+  advanceComputeCycle,
+  createStarterComputeCycle,
+  endActiveWindow,
+  playAttackCard,
+  shouldEndActiveWindow,
+  startActiveWindow,
+  type AttackCardType,
+  type ComputeCycleState,
+} from "../compute-cycle";
 import {
   ACTOR_DISPLAY_SCALE,
   DRONE_SHEET_KEY,
@@ -43,17 +54,39 @@ type AbilityAction = CombatAbilityAction;
 
 type AbilityAttempt = {
   allowed: boolean;
-  baseCost: number;
-  cached: boolean;
   cost: number;
 };
 
 type CooldownIndicator = {
   container: Phaser.GameObjects.Container;
   progress: Phaser.GameObjects.Graphics;
-  cacheZone: Phaser.GameObjects.Graphics;
-  missRing: Phaser.GameObjects.Arc;
   label: Phaser.GameObjects.Text;
+};
+
+type AttackQueueHud = {
+  container: Phaser.GameObjects.Container;
+  meleeCards: HudCardView[];
+  rangedCards: HudCardView[];
+  preparePile: CardPileView;
+  shufflePile: CardPileView;
+  drawCount: Phaser.GameObjects.Text;
+  discardCount: Phaser.GameObjects.Text;
+  phaseLabel: Phaser.GameObjects.Text;
+  border: Phaser.GameObjects.Rectangle;
+};
+
+type HudCardView = {
+  container: Phaser.GameObjects.Container;
+  frame: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  cross: Phaser.GameObjects.Graphics;
+  homeX: number;
+  homeY: number;
+};
+
+type CardPileView = {
+  container: Phaser.GameObjects.Container;
+  cards: Phaser.GameObjects.Rectangle[];
 };
 
 type EnemySpawnPoint = {
@@ -105,15 +138,15 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly collapseVisualDurationMs = 1_000;
   private static readonly resumeSaveIntervalMs = 600;
   private static readonly combatSpeedMultiplier = 1.5;
-  private static readonly playerBaseSpeed = 220;
-  private static readonly playerBaseAcceleration = 510;
-  private static readonly playerBaseDeceleration = 660;
+  private static readonly playerBaseSpeed = 235;
+  private static readonly playerBaseAcceleration = 760;
+  private static readonly playerBaseDeceleration = 980;
   private static readonly playerBaseDashSpeed = 520;
   private static readonly meleeRange = 166;
   private static readonly meleeStunDuration = 0.28;
-  private static readonly playerDashDuration = 0.16;
+  private static readonly playerDashDuration = 0.145;
   private static readonly playerDashInvulnerabilityDuration = 0.24;
-  private static readonly meleeAttackLockDuration = 0.26;
+  private static readonly meleeAttackLockDuration = 0.13;
   private static readonly rangedMovementPauseDuration = 0.32;
   private static readonly rangedAttackAnimationDuration = 0.28;
   private static readonly droneChaseSpeed = 132;
@@ -124,6 +157,28 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly droneLungeDuration = 0.18;
   private static readonly droneLungeCooldown = 1.35;
   private static readonly droneLungeSpeed = 470;
+  private static readonly enemySpawnPositions = [
+    [540, 240],
+    [710, 280],
+    [940, 250],
+    [1140, 450],
+    [980, 660],
+    [1340, 370],
+    [1290, 900],
+    [780, 920],
+    [430, 610],
+    [1120, 1010],
+    [1480, 720],
+    [620, 1060],
+    [1240, 250],
+    [260, 260],
+    [1510, 260],
+    [260, 900],
+    [1490, 1010],
+    [900, 500],
+    [1450, 560],
+    [520, 900],
+  ] as const;
 
   private readonly arenaWidth = 1640;
   private readonly arenaHeight = 1180;
@@ -143,6 +198,7 @@ export class ArenaScene extends Phaser.Scene {
     D: Phaser.Input.Keyboard.Key;
     F: Phaser.Input.Keyboard.Key;
     Q: Phaser.Input.Keyboard.Key;
+    E: Phaser.Input.Keyboard.Key;
     SPACE: Phaser.Input.Keyboard.Key;
   };
   private blurFilter?: Phaser.Filters.Blur;
@@ -178,6 +234,8 @@ export class ArenaScene extends Phaser.Scene {
     melee: 0,
     ranged: 0,
   };
+  private computeCycle: ComputeCycleState = startActiveWindow(createStarterComputeCycle(1), gameState.computeMax);
+  private attackQueueHud?: AttackQueueHud;
   private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
   private timelineTimeMs = 0;
   private arenaElapsedTimeMs = 0;
@@ -188,6 +246,7 @@ export class ArenaScene extends Phaser.Scene {
   private quantumTrailGraphics?: Phaser.GameObjects.Graphics;
   private quantumTargetMarker?: Phaser.GameObjects.Arc;
   private collapseOverlay?: Phaser.GameObjects.Rectangle;
+  private preparingBorderBars: Phaser.GameObjects.Rectangle[] = [];
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
@@ -239,6 +298,9 @@ export class ArenaScene extends Phaser.Scene {
       melee: 0,
       ranged: 0,
     };
+    this.computeCycle = startActiveWindow(createStarterComputeCycle(this.timelineTimeMs + gameState.runId), gameState.computeMax);
+    gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
+    gameState.emitChange();
     this.transientVisuals.clear();
     this.timelineTimeMs = data?.resume?.timelineTimeMs ?? 0;
     this.arenaElapsedTimeMs = data?.resume?.arenaElapsedTimeMs ?? 0;
@@ -312,6 +374,8 @@ export class ArenaScene extends Phaser.Scene {
     this.collapseOverlay.setDepth(9_998);
     this.collapseOverlay.setBlendMode(Phaser.BlendModes.SCREEN);
 
+    this.createPreparingBorder();
+
     this.ghostShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
     this.ghostShadow.setScale(0.88, 0.64);
     this.ghostShadow.setAlpha(0);
@@ -335,7 +399,7 @@ export class ArenaScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.input.on("pointerdown", this.handlePointerDown, this);
 
-    this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,Q,SPACE") as ArenaScene["cursors"];
+    this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,Q,E,SPACE") as ArenaScene["cursors"];
 
     this.enemyCountLabel = this.add.text(24, 24, "", {
       fontFamily: "Azeret Mono, monospace",
@@ -345,6 +409,7 @@ export class ArenaScene extends Phaser.Scene {
     this.enemyCountLabel.setScrollFactor(0);
     this.enemyCountLabel.setDepth(9999);
     this.createCooldownIndicators();
+    this.createAttackQueueHud();
 
     if (data?.resume) {
       try {
@@ -366,6 +431,10 @@ export class ArenaScene extends Phaser.Scene {
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
+    this.updateAttackQueueHud();
+    if (!data?.resume) {
+      this.animateDeal();
+    }
     this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
     gameState.setExtractionReady(this.arenaCleared);
     this.saveResumeCheckpoint();
@@ -382,6 +451,7 @@ export class ArenaScene extends Phaser.Scene {
       this.input.off("pointerdown", this.handlePointerDown, this);
       this.clearTransientVisuals();
       this.destroyCooldownIndicators();
+      this.destroyAttackQueueHud();
       this.destroyAllProjectiles();
       this.destroyAllDrones();
       if (typeof window !== "undefined") {
@@ -408,13 +478,17 @@ export class ArenaScene extends Phaser.Scene {
     this.advanceAbilityCooldowns(delta);
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
-    gameState.regenerate(delta);
+    this.advanceComputeCycleState(delta);
 
     const pointer = this.input.activePointer;
     pointer.updateWorldPoint(this.cameras.main);
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.Q) && this.tryCollapse()) {
       return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.E)) {
+      this.tryRequestCycleEnd();
     }
 
     this.updatePlayerMovement(dt, pointer);
@@ -428,6 +502,8 @@ export class ArenaScene extends Phaser.Scene {
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
+    this.updateAttackQueueHud();
+    this.checkAutomaticCycleEnd();
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.F) && this.canExtract()) {
       const note = this.arenaCleared
@@ -442,7 +518,7 @@ export class ArenaScene extends Phaser.Scene {
       this.arenaCleared = true;
       gameState.setExtractionReady(true);
       gameState.setNotice(
-        "All hostiles decommissioned. Northern extraction gate now serves as your audit exit.",
+        "All bugs decommissioned. Northern extraction gate now serves as your audit exit.",
       );
       this.tweens.add({
         targets: this.extractionRing,
@@ -605,24 +681,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private spawnEnemies(): void {
-    const positions = [
-      [540, 240],
-      [710, 280],
-      [940, 250],
-      [1140, 450],
-      [980, 660],
-      [1340, 370],
-      [1290, 900],
-      [780, 920],
-      [430, 610],
-      [1120, 1010],
-      [1480, 720],
-      [620, 1060],
-      [1240, 250],
-    ] as const;
-
-    const enemyCount = Math.min(positions.length, 5 + gameState.roundsFinished);
-    this.enemySpawnPoints = positions.slice(0, enemyCount).map(([x, y], index) => ({
+    const enemyCount = Math.min(ArenaScene.enemySpawnPositions.length, 5 + gameState.roundsFinished);
+    this.enemySpawnPoints = ArenaScene.enemySpawnPositions.slice(0, enemyCount).map(([x, y], index) => ({
       id: index,
       x,
       y,
@@ -698,7 +758,8 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const movementMultiplier = gameState.getMovementMultiplier();
+    const preparingMultiplier = this.computeCycle.phase === "preparing" ? 0.6 : 1;
+    const movementMultiplier = gameState.getMovementMultiplier() * preparingMultiplier;
     const maxSpeed =
       ArenaScene.playerBaseSpeed *
       ArenaScene.combatSpeedMultiplier *
@@ -818,18 +879,8 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const attempt = this.resolveAbilityAttempt("dash", gameState.dashCost);
+    const attempt = this.resolveAbilityAttempt("dash", 0);
     if (!attempt.allowed) {
-      return;
-    }
-
-    if (!gameState.canUseAbility()) {
-      gameState.setNotice("Dash denied. Compute Rate Limit or Compute Credits debt must recover first.");
-      return;
-    }
-
-    if (!gameState.spend(attempt.cost)) {
-      gameState.setNotice("Dash denied. Compute Rate Limit cannot authorize displacement.");
       return;
     }
 
@@ -850,7 +901,6 @@ export class ArenaScene extends Phaser.Scene {
     this.playerFacing = this.directionFromVector(direction, this.playerFacing);
     this.cameras.main.shake(90, 0.0022);
     this.createDashAfterimage();
-    this.createCacheDiscountVisual("dash", attempt);
   }
 
   private createDashAfterimage(): void {
@@ -880,41 +930,15 @@ export class ArenaScene extends Phaser.Scene {
   private resolveAbilityAttempt(action: AbilityAction, baseCost: number): AbilityAttempt {
     const remainingMs = this.cooldownRemainingMs[action];
 
-    if (
-      isCacheWindowOpen(
-        action,
-        remainingMs,
-        this.cooldownForAction(action),
-        this.cacheDiscountBlocked[action],
-        this.canUseCacheDiscount(),
-      )
-    ) {
-      return {
-        allowed: true,
-        baseCost,
-        cached: true,
-        cost: getCachedAbilityCost(baseCost),
-      };
-    }
-
     if (remainingMs > 0) {
-      if (!this.cacheDiscountBlocked[action]) {
-        this.cacheDiscountBlocked[action] = true;
-        this.createCacheInvalidatedVisual(action);
-      }
-
       return {
         allowed: false,
-        baseCost,
-        cached: false,
         cost: baseCost,
       };
     }
 
     return {
       allowed: true,
-      baseCost,
-      cached: false,
       cost: baseCost,
     };
   }
@@ -922,84 +946,6 @@ export class ArenaScene extends Phaser.Scene {
   private completeAbilityAttempt(action: AbilityAction, attempt: AbilityAttempt): void {
     this.cooldownRemainingMs[action] = this.cooldownForAction(action);
     this.cacheDiscountBlocked[action] = false;
-
-    if (attempt.cached) {
-      const saved = Math.max(0, attempt.baseCost - attempt.cost);
-      gameState.setNotice(`Cache hit: ${this.abilityLabel(action)} repeated for ${attempt.cost} Compute. Saved ${saved}.`);
-    }
-  }
-
-  private createCacheDiscountVisual(action: AbilityAction, attempt: AbilityAttempt): void {
-    if (!attempt.cached) {
-      return;
-    }
-
-    const ring = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 4, 22, 0x60ffd3, 0.18));
-    ring.setStrokeStyle(3, 0xffcf66, 0.8);
-    ring.setDepth(this.player.y + 42);
-
-    const label = this.trackTransientVisual(this.add.text(this.player.x, this.player.y - 54, `${this.abilityLabel(action)} CACHE`, {
-      fontFamily: "Azeret Mono, monospace",
-      fontSize: "11px",
-      color: "#fff7c2",
-      backgroundColor: "rgba(13, 20, 25, 0.72)",
-      padding: { left: 6, right: 6, top: 3, bottom: 3 },
-    }));
-    label.setOrigin(0.5);
-    label.setDepth(this.player.y + 43);
-
-    this.tweens.add({
-      targets: ring,
-      alpha: 0,
-      scale: { from: 0.85, to: 1.9 },
-      duration: 360,
-      ease: "Sine.easeOut",
-      onComplete: () => ring.destroy(),
-    });
-    this.tweens.add({
-      targets: label,
-      alpha: 0,
-      y: label.y - 26,
-      duration: 520,
-      ease: "Sine.easeOut",
-      onComplete: () => label.destroy(),
-    });
-  }
-
-  private createCacheInvalidatedVisual(action: AbilityAction): void {
-    const crossA = this.trackTransientVisual(this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86));
-    const crossB = this.trackTransientVisual(this.add.rectangle(this.player.x, this.player.y - 40, 42, 4, 0xff4fa4, 0.86));
-    crossA.setAngle(45);
-    crossB.setAngle(-45);
-    crossA.setDepth(this.player.y + 44);
-    crossB.setDepth(this.player.y + 44);
-
-    const label = this.trackTransientVisual(this.add.text(this.player.x, this.player.y - 72, `${this.abilityLabel(action)} CACHE MISSED`, {
-      fontFamily: "Azeret Mono, monospace",
-      fontSize: "10px",
-      color: "#ffd7e8",
-      backgroundColor: "rgba(35, 7, 22, 0.72)",
-      padding: { left: 6, right: 6, top: 3, bottom: 3 },
-    }));
-    label.setOrigin(0.5);
-    label.setDepth(this.player.y + 45);
-
-    this.tweens.add({
-      targets: [crossA, crossB, label],
-      alpha: 0,
-      y: "-=18",
-      duration: 360,
-      ease: "Sine.easeOut",
-      onComplete: () => {
-        crossA.destroy();
-        crossB.destroy();
-        label.destroy();
-      },
-    });
-  }
-
-  private canUseCacheDiscount(): boolean {
-    return gameState.computeCurrent >= 0 && gameState.allotmentCurrent > 0;
   }
 
   private createCooldownIndicators(): void {
@@ -1010,12 +956,7 @@ export class ArenaScene extends Phaser.Scene {
       const backdrop = this.add.circle(0, 0, 17, 0x051017, 0.56);
       backdrop.setStrokeStyle(2, 0x33515d, 0.9);
 
-      const cacheZone = this.add.graphics();
       const progress = this.add.graphics();
-      const missRing = this.add.circle(0, 0, 19);
-      missRing.setStrokeStyle(2, 0xff4fa4, 0.75);
-      missRing.setVisible(false);
-
       const label = this.add.text(0, 0, this.abilityShortLabel(action), {
         fontFamily: "Azeret Mono, monospace",
         fontSize: "10px",
@@ -1023,21 +964,16 @@ export class ArenaScene extends Phaser.Scene {
       });
       label.setOrigin(0.5);
 
-      container.add([backdrop, cacheZone, progress, missRing, label]);
+      container.add([backdrop, progress, label]);
       this.cooldownIndicators[action] = {
         container,
         progress,
-        cacheZone,
-        missRing,
         label,
       };
     });
   }
 
   private updateCooldownIndicators(): void {
-    const canUseDiscount = this.canUseCacheDiscount();
-    const pulse = (Math.sin(this.timelineTimeMs * 0.012) + 1) * 0.5;
-
     (["dash", "melee", "ranged"] as AbilityAction[]).forEach((action) => {
       const indicator = this.cooldownIndicators[action];
       if (!indicator) {
@@ -1051,69 +987,26 @@ export class ArenaScene extends Phaser.Scene {
       const cooldownMs = this.cooldownForAction(action);
       const remainingMs = this.cooldownRemainingMs[action];
       const progress = getCooldownProgress(cooldownMs, remainingMs);
-      const cacheRatio = getCacheWindowRatio(action, cooldownMs);
-      const cacheStartProgress = 1 - cacheRatio;
       const ready = remainingMs <= 0;
       indicator.container.setVisible(!ready);
       if (ready) {
         this.cacheWindowActive[action] = false;
         indicator.progress.clear();
-        indicator.cacheZone.clear();
-        indicator.missRing.setVisible(false);
         return;
       }
-      const cacheActive = isCacheWindowOpen(
-        action,
-        remainingMs,
-        cooldownMs,
-        this.cacheDiscountBlocked[action],
-        canUseDiscount,
-      );
-      const blocked = this.cacheDiscountBlocked[action] && remainingMs > 0;
-      const justOpened = cacheActive && !this.cacheWindowActive[action];
-      if (justOpened) {
-        this.cacheWindowPulseUntilMs[action] = this.timelineTimeMs + 220;
-        this.playCacheWindowTick(action);
-      }
-      this.cacheWindowActive[action] = cacheActive;
-      const entryPulseProgress = Phaser.Math.Clamp(
-        (this.cacheWindowPulseUntilMs[action] - this.timelineTimeMs) / 220,
-        0,
-        1,
-      );
-      const entryPulseStrength = Phaser.Math.Easing.Cubic.Out(entryPulseProgress);
-      const activePulseAlpha = cacheActive ? 0.86 + pulse * 0.12 : 0.38;
-      const cacheAlpha = blocked
-        ? 0.88
-        : ready
-          ? 0.28
-          : Math.max(activePulseAlpha, 0.48 + entryPulseStrength * 0.44);
-      const cacheThickness = blocked ? 4 : cacheActive ? 5 + entryPulseStrength * 2 : 4;
-      const progressThickness = ready ? 5 : 3 + entryPulseStrength;
-
-      this.drawCooldownArc(
-        indicator.cacheZone,
-        cacheStartProgress,
-        1,
-        blocked ? 0xff4fa4 : 0xffcf66,
-        cacheAlpha,
-        cacheThickness,
-      );
       this.drawCooldownArc(
         indicator.progress,
         0,
         ready ? 1 : progress,
-        ready ? 0x60ffd3 : progress >= cacheStartProgress ? 0xfff1a8 : 0x60ffd3,
-        ready ? 0.96 : 0.88 + entryPulseStrength * 0.08,
-        progressThickness,
+        0x60ffd3,
+        0.88,
+        3,
       );
 
-      indicator.missRing.setVisible(blocked);
-      indicator.missRing.setAlpha(0.38 + pulse * 0.24);
-      indicator.label.setColor(ready ? "#fff8c8" : blocked ? "#ffd7e8" : cacheActive ? "#fff1b6" : "#dffcf3");
-      indicator.label.setAlpha(ready ? 1 : 0.86);
-      indicator.label.setScale(ready ? 1.05 : 1 + entryPulseStrength * 0.12);
-      indicator.container.setScale(1 + entryPulseStrength * 0.08);
+      indicator.label.setColor("#dffcf3");
+      indicator.label.setAlpha(0.86);
+      indicator.label.setScale(1);
+      indicator.container.setScale(1);
     });
   }
 
@@ -1147,31 +1040,390 @@ export class ArenaScene extends Phaser.Scene {
     graphics.strokePath();
   }
 
-  private playCacheWindowTick(action: AbilityAction): void {
-    const soundManager = this.sound as Phaser.Sound.WebAudioSoundManager;
-    if (!("context" in soundManager) || soundManager.locked) {
+  private createAttackQueueHud(): void {
+    this.destroyAttackQueueHud();
+
+    const container = this.add.container(this.scale.width / 2, this.scale.height - 62);
+    container.setScrollFactor(0);
+    container.setDepth(10_000);
+
+    const border = this.add.rectangle(0, 0, 560, 90, 0x061016, 0.66);
+    border.setStrokeStyle(2, 0x60ffd3, 0.72);
+
+    const meleeLabel = this.add.text(-238, -32, "STATEMENT", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "12px",
+      color: "#dffcf3",
+    });
+    const rangedLabel = this.add.text(92, -32, "FUNCTION", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "12px",
+      color: "#dffcf3",
+    });
+    const phaseLabel = this.add.text(0, 30, "", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "13px",
+      color: "#fff1b6",
+    });
+    phaseLabel.setOrigin(0.5);
+
+    const drawCount = this.add.text(-42, -34, "", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "12px",
+      color: "#9cf9ff",
+    });
+    drawCount.setOrigin(0.5);
+    const discardCount = this.add.text(42, -34, "", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "12px",
+      color: "#ffcf66",
+    });
+    discardCount.setOrigin(0.5);
+
+    const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-238 + index * 28, -7));
+    const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(92 + index * 28, -7));
+    const preparePile = this.createCardPile(54, this.scale.height - 60);
+    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 60);
+    container.add([
+      border,
+      meleeLabel,
+      rangedLabel,
+      drawCount,
+      discardCount,
+      phaseLabel,
+      ...meleeCards.map((card) => card.container),
+      ...rangedCards.map((card) => card.container),
+    ]);
+
+    preparePile.container.setVisible(false);
+    shufflePile.container.setVisible(false);
+    this.attackQueueHud = {
+      container,
+      meleeCards,
+      rangedCards,
+      preparePile,
+      shufflePile,
+      drawCount,
+      discardCount,
+      phaseLabel,
+      border,
+    };
+  }
+
+  private createCardPile(x: number, y: number): CardPileView {
+    const container = this.add.container(x, y);
+    container.setScrollFactor(0);
+    container.setDepth(10_001);
+
+    const cards = Array.from({ length: 6 }, (_, index) => {
+      const card = this.add.rectangle(index * 2, -index * 2, 28, 34, index % 2 === 0 ? 0xdffcf3 : 0xffcf66, 0.96);
+      card.setStrokeStyle(2, 0x071015, 0.72);
+      return card;
+    });
+
+    container.add(cards);
+    return { container, cards };
+  }
+
+  private createHudCard(x: number, y: number): HudCardView {
+    const container = this.add.container(x, y);
+    const frame = this.add.rectangle(0, 0, 24, 27, 0xdffcf3, 1);
+    frame.setStrokeStyle(2, 0x071015, 0.5);
+
+    const label = this.add.text(0, 0, "", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "15px",
+      color: "#071015",
+    });
+    label.setOrigin(0.5);
+
+    const cross = this.add.graphics();
+    cross.lineStyle(3, 0xff3d5a, 0.92);
+    cross.beginPath();
+    cross.moveTo(-8, -9);
+    cross.lineTo(8, 9);
+    cross.moveTo(8, -9);
+    cross.lineTo(-8, 9);
+    cross.strokePath();
+    cross.setVisible(false);
+
+    container.add([frame, label, cross]);
+    container.setVisible(false);
+
+    return {
+      container,
+      frame,
+      label,
+      cross,
+      homeX: x,
+      homeY: y,
+    };
+  }
+
+  private updateAttackQueueHud(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
       return;
     }
 
-    const context = soundManager.context;
-    if (!context || context.state !== "running") {
+    hud.container.setPosition(this.scale.width / 2, this.scale.height - 62);
+    hud.preparePile.container.setPosition(54, this.scale.height - 58);
+    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - 58);
+    const preparing = this.computeCycle.phase === "preparing";
+    hud.border.setStrokeStyle(2, preparing ? 0xffcf66 : 0x60ffd3, preparing ? 0.84 : 0.72);
+    hud.border.setFillStyle(preparing ? 0x1d1710 : 0x061016, 0.66);
+    hud.phaseLabel.setText(
+      preparing
+        ? `PREPARING ${(this.computeCycle.preparingRemainingMs / 1000).toFixed(1)}s`
+        : "ACTIVE // E DISCARD",
+    );
+    hud.drawCount.setText(`DRAW ${this.computeCycle.drawPile.length}`);
+    hud.discardCount.setText(`DISCARD ${this.computeCycle.discardPile.length}`);
+    this.syncHudCards(hud.meleeCards, this.computeCycle.queues.melee, "S", preparing);
+    this.syncHudCards(hud.rangedCards, this.computeCycle.queues.ranged, "F", preparing);
+    this.syncPreparePile(preparing);
+  }
+
+  private syncHudCards(
+    views: HudCardView[],
+    cards: { type: AttackCardType }[],
+    label: string,
+    preparing: boolean,
+  ): void {
+    views.forEach((view, index) => {
+      const visible = index < cards.length;
+      view.container.setVisible(visible);
+      if (!visible) {
+        this.tweens.killTweensOf(view.container);
+        view.container.setPosition(view.homeX, view.homeY);
+        view.container.setAngle(0);
+        return;
+      }
+
+      const type = cards[index]?.type ?? (label === "S" ? "melee" : "ranged");
+      const blocked = preparing || !this.canAffordAttackCard(type);
+      const fill = type === "melee" ? 0xdffcf3 : 0xffcf66;
+      view.label.setText(label);
+      view.label.setColor(blocked ? "#7c8890" : "#071015");
+      view.frame.setFillStyle(blocked ? 0x22313a : fill, blocked ? 0.72 : 1);
+      view.frame.setStrokeStyle(2, blocked ? 0xff3d5a : 0x071015, blocked ? 0.86 : 0.5);
+      view.cross.setVisible(blocked);
+    });
+  }
+
+  private destroyAttackQueueHud(): void {
+    this.killAttackQueueHudTweens();
+    this.attackQueueHud?.preparePile.container.destroy();
+    this.attackQueueHud?.shufflePile.container.destroy();
+    this.attackQueueHud?.container.destroy();
+    this.attackQueueHud = undefined;
+  }
+
+  private killAttackQueueHudTweens(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
       return;
     }
 
-    const frequency = action === "melee" ? 1240 : action === "dash" ? 1120 : 1360;
-    const startTime = context.currentTime;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "triangle";
-    oscillator.frequency.setValueAtTime(frequency, startTime);
-    oscillator.frequency.exponentialRampToValueAtTime(frequency * 0.92, startTime + 0.06);
-    gain.gain.setValueAtTime(0.0001, startTime);
-    gain.gain.exponentialRampToValueAtTime(0.028, startTime + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.085);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + 0.09);
+    this.tweens.killTweensOf([
+      ...hud.meleeCards.map((card) => card.container),
+      ...hud.rangedCards.map((card) => card.container),
+      ...hud.preparePile.cards,
+      ...hud.shufflePile.cards,
+    ]);
+  }
+
+  private canAffordAttackCard(type: AttackCardType): boolean {
+    const cost = type === "melee" ? gameState.meleeCost : gameState.rangedCost;
+    return gameState.computeCurrent >= cost && gameState.allotmentCurrent >= cost;
+  }
+
+  private syncPreparePile(preparing: boolean): void {
+    const pile = this.attackQueueHud?.preparePile;
+    if (!pile) {
+      return;
+    }
+
+    if (!preparing) {
+      if (pile.container.visible) {
+        this.tweens.killTweensOf(pile.cards);
+      }
+      pile.container.setVisible(false);
+      this.resetCardPile(pile);
+      return;
+    }
+
+    if (pile.container.visible) {
+      return;
+    }
+
+    pile.container.setVisible(true);
+    this.resetCardPile(pile);
+    pile.cards.forEach((card, index) => {
+      this.tweens.add({
+        targets: card,
+        x: (index - 2.5) * 8,
+        y: -Math.abs(index - 2.5) * 3,
+        angle: (index - 2.5) * 9,
+        duration: 420,
+        delay: index * 36,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: 120,
+      });
+    });
+  }
+
+  private resetCardPile(pile: CardPileView): void {
+    pile.cards.forEach((card, index) => {
+      card.setPosition(index * 2, -index * 2);
+      card.setAngle(0);
+      card.setAlpha(0.96);
+    });
+  }
+
+  private animateDeal(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const cards = [...hud.meleeCards, ...hud.rangedCards]
+      .filter((card) => card.container.visible)
+      .sort((left, right) => left.homeX - right.homeX);
+    const startX = -this.scale.width / 2 - 46;
+
+    cards.forEach((card, index) => {
+      this.tweens.killTweensOf(card.container);
+      card.container.setPosition(startX - index * 10, card.homeY);
+      card.container.setAngle(-9);
+      this.tweens.add({
+        targets: card.container,
+        x: card.homeX,
+        angle: 0,
+        duration: 260,
+        delay: index * 42,
+        ease: "Cubic.easeOut",
+      });
+    });
+  }
+
+  private animateShufflePile(): void {
+    const pile = this.attackQueueHud?.shufflePile;
+    if (!pile) {
+      return;
+    }
+
+    this.tweens.killTweensOf(pile.cards);
+    pile.container.setVisible(true);
+    this.resetCardPile(pile);
+    pile.cards.forEach((card, index) => {
+      this.tweens.add({
+        targets: card,
+        x: index % 2 === 0 ? -18 : 18,
+        y: -index * 2,
+        angle: index % 2 === 0 ? -16 : 16,
+        alpha: 1,
+        duration: 120,
+        delay: index * 42,
+        ease: "Sine.easeOut",
+        yoyo: true,
+        repeat: 3,
+        onComplete: () => {
+          if (index === pile.cards.length - 1) {
+            pile.container.setVisible(false);
+            this.resetCardPile(pile);
+          }
+        },
+      });
+    });
+  }
+
+  private animateCycleEndDiscard(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    [...hud.meleeCards, ...hud.rangedCards].forEach((card, index) => {
+      if (card.container.visible) {
+        this.animateDiscardedCard(card, index * 24);
+      }
+    });
+  }
+
+  private animatePlayedCard(type: AttackCardType): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const card = (type === "melee" ? hud.meleeCards : hud.rangedCards).find((view) => view.container.visible);
+    if (card) {
+      this.tweens.killTweensOf(card.container);
+      this.animateDiscardedCard(card, 0);
+    }
+  }
+
+  private animateDiscardedCard(card: HudCardView, delay: number): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const flying = this.createFlyingHudCard(
+      card.label.text,
+      hud.container.x + card.container.x,
+      hud.container.y + card.container.y,
+      card.frame.fillColor,
+      card.cross.visible,
+    );
+    const targetY = flying.y + Phaser.Math.Between(-12, 12);
+    this.tweens.add({
+      targets: flying,
+      x: this.scale.width + 62,
+      y: targetY,
+      angle: 18,
+      alpha: 0,
+      duration: 280,
+      delay,
+      ease: "Cubic.easeIn",
+      onComplete: () => flying.destroy(),
+    });
+  }
+
+  private createFlyingHudCard(
+    labelText: string,
+    x: number,
+    y: number,
+    fillColor: number,
+    crossed: boolean,
+  ): Phaser.GameObjects.Container {
+    const container = this.trackTransientVisual(this.add.container(x, y));
+    container.setScrollFactor(0);
+    container.setDepth(10_001);
+
+    const frame = this.add.rectangle(0, 0, 24, 27, fillColor, crossed ? 0.72 : 1);
+    frame.setStrokeStyle(2, crossed ? 0xff3d5a : 0x071015, crossed ? 0.86 : 0.5);
+    const label = this.add.text(0, 0, labelText, {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "15px",
+      color: crossed ? "#7c8890" : "#071015",
+    });
+    label.setOrigin(0.5);
+    const cross = this.add.graphics();
+    cross.lineStyle(3, 0xff3d5a, 0.92);
+    cross.beginPath();
+    cross.moveTo(-8, -9);
+    cross.lineTo(8, 9);
+    cross.moveTo(8, -9);
+    cross.lineTo(-8, 9);
+    cross.strokePath();
+    cross.setVisible(crossed);
+
+    container.add([frame, label, cross]);
+    return container;
   }
 
   private cooldownForAction(action: AbilityAction): number {
@@ -1186,14 +1438,14 @@ export class ArenaScene extends Phaser.Scene {
 
   private abilityShortLabel(action: AbilityAction): string {
     if (action === "dash") return "D";
-    if (action === "melee") return "M";
-    return "R";
+    if (action === "melee") return "S";
+    return "F";
   }
 
   private abilityLabel(action: AbilityAction): string {
     if (action === "dash") return "Dash";
-    if (action === "melee") return "Melee";
-    return "Ranged";
+    if (action === "melee") return "Statement";
+    return "Function";
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -1212,21 +1464,38 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    if (this.computeCycle.phase !== "active") {
+      gameState.setNotice("Statement unavailable. Cycle is preparing.");
+      return;
+    }
+
+    if (this.computeCycle.queues.melee.length <= 0) {
+      gameState.setNotice("Statement queue empty. End the Cycle or wait for the next draw.");
+      return;
+    }
+
     const attempt = this.resolveAbilityAttempt("melee", gameState.meleeCost);
     if (!attempt.allowed) {
       return;
     }
 
-    if (!gameState.canUseAbility()) {
-      gameState.setNotice("Melee denied. Compute Rate Limit or Compute Credits debt must recover first.");
+    if (!gameState.canUseAbility(attempt.cost)) {
+      gameState.setNotice("Statement denied. Not enough Compute Rate Limit or Compute Credits.");
+      return;
+    }
+
+    const played = playAttackCard(this.computeCycle, "melee");
+    if (!played.played) {
       return;
     }
 
     if (!gameState.spend(attempt.cost)) {
-      gameState.setNotice("Melee impulse denied. You are fully rate-limited.");
+      gameState.setNotice("Statement impulse denied. Not enough Compute remains.");
       return;
     }
 
+    this.animatePlayedCard("melee");
+    this.computeCycle = played.state;
     this.completeAbilityAttempt("melee", attempt);
     const aimVector = new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y);
     this.playerFacing = this.directionFromVector(
@@ -1254,8 +1523,6 @@ export class ArenaScene extends Phaser.Scene {
       onComplete: () => slash.destroy(),
     });
 
-    this.createCacheDiscountVisual("melee", attempt);
-
     this.drones.forEach((drone) => {
       const offset = new Phaser.Math.Vector2(drone.sprite.x - this.player.x, drone.sprite.y - this.player.y);
       const distance = offset.length();
@@ -1269,7 +1536,7 @@ export class ArenaScene extends Phaser.Scene {
       const forwardReach = offset.dot(new Phaser.Math.Vector2(Math.cos(swingAngle), Math.sin(swingAngle)));
 
       if (distance <= ArenaScene.meleeRange && forwardReach > -18 && delta <= 1.08) {
-        this.hitDrone(drone, 24, swingAngle, 250, ArenaScene.meleeStunDuration);
+        this.hitDrone(drone, MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration);
       }
     });
   }
@@ -1294,21 +1561,38 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    if (this.computeCycle.phase !== "active") {
+      gameState.setNotice("Function unavailable. Cycle is preparing.");
+      return;
+    }
+
+    if (this.computeCycle.queues.ranged.length <= 0) {
+      gameState.setNotice("Function queue empty. End the Cycle or wait for the next draw.");
+      return;
+    }
+
     const attempt = this.resolveAbilityAttempt("ranged", gameState.rangedCost);
     if (!attempt.allowed) {
       return;
     }
 
-    if (!gameState.canUseAbility()) {
-      gameState.setNotice("Ranged denied. Compute Rate Limit or Compute Credits debt must recover first.");
+    if (!gameState.canUseAbility(attempt.cost)) {
+      gameState.setNotice("Function denied. Not enough Compute Rate Limit or Compute Credits.");
+      return;
+    }
+
+    const played = playAttackCard(this.computeCycle, "ranged");
+    if (!played.played) {
       return;
     }
 
     if (!gameState.spend(attempt.cost)) {
-      gameState.setNotice("Ranged cast rejected. Compute Credit reserve fully seized.");
+      gameState.setNotice("Function cast rejected. Not enough Compute remains.");
       return;
     }
 
+    this.animatePlayedCard("ranged");
+    this.computeCycle = played.state;
     this.completeAbilityAttempt("ranged", attempt);
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
     this.velocity.set(0, 0);
@@ -1329,7 +1613,7 @@ export class ArenaScene extends Phaser.Scene {
     sprite.setRotation(angle);
     sprite.setDepth(this.player.y + 20);
 
-    const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(490);
+    const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(RANGED_PROJECTILE_SPEED);
     sprite.setVelocity(velocity.x, velocity.y);
 
     this.projectiles.push({
@@ -1338,7 +1622,6 @@ export class ArenaScene extends Phaser.Scene {
       ttl: 1.2,
     });
 
-    this.createCacheDiscountVisual("ranged", attempt);
   }
 
   private hitDrone(
@@ -1385,6 +1668,8 @@ export class ArenaScene extends Phaser.Scene {
 
     affected.forEach((drone) => {
       if (drone !== impacted) {
+        const splashAngle = Phaser.Math.Angle.Between(impactX, impactY, drone.sprite.x, drone.sprite.y);
+        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0);
         this.pullDroneTowardPoint(drone, impactX, impactY, RANGED_PULL_FORCE);
       }
     });
@@ -1392,7 +1677,7 @@ export class ArenaScene extends Phaser.Scene {
     const refunded = gameState.refundAllotment(calculateRangedSiphonRefund(affected.length));
     this.createRangedSiphonVisual(impactX, impactY, refunded);
     if (refunded > 0) {
-      gameState.setNotice(`Ranged siphon +${refunded} Compute Credits.`);
+      gameState.setNotice(`Function siphon +${refunded} Compute Credits.`);
     }
   }
 
@@ -1410,7 +1695,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createRangedSiphonVisual(impactX: number, impactY: number, refunded: number): void {
-    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, 20, 0x60ffd3, 0.08));
+    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, RANGED_PULL_RADIUS, 0x60ffd3, 0.05));
     pulse.setStrokeStyle(2, 0x60ffd3, 0.65);
     pulse.setDepth(impactY + 18);
 
@@ -1421,7 +1706,7 @@ export class ArenaScene extends Phaser.Scene {
     this.tweens.add({
       targets: pulse,
       alpha: 0,
-      scale: { from: 0.75, to: 1.35 },
+      scale: { from: 0.72, to: 1 },
       duration: 220,
       ease: "Sine.easeOut",
       onComplete: () => pulse.destroy(),
@@ -1457,6 +1742,71 @@ export class ArenaScene extends Phaser.Scene {
       ease: "Sine.easeOut",
       onComplete: () => label.destroy(),
     });
+  }
+
+  private advanceComputeCycleState(deltaMs: number): void {
+    if (this.computeCycle.phase !== "preparing") {
+      return;
+    }
+
+    const drawCountBefore = this.computeCycle.drawPile.length;
+    const discardCountBefore = this.computeCycle.discardPile.length;
+    const queuedBefore = this.computeCycle.queues.melee.length + this.computeCycle.queues.ranged.length;
+    this.computeCycle = advanceComputeCycle(this.computeCycle, deltaMs, gameState.computeMax);
+    if (this.computeCycle.phase === "active") {
+      gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
+      gameState.setNotice("Cycle active. Attack queues authorized.");
+      this.updateAttackQueueHud();
+      if (discardCountBefore > 0 && drawCountBefore < this.computeCycle.queueLimit - queuedBefore) {
+        this.animateShufflePile();
+      }
+      this.animateDeal();
+    }
+  }
+
+  private tryRequestCycleEnd(): void {
+    if (this.computeCycle.phase !== "active" || this.hasCommittedAction()) {
+      return;
+    }
+
+    this.endCurrentActiveWindow("Cycle ended by operator request.");
+  }
+
+  private checkAutomaticCycleEnd(): void {
+    if (!shouldEndActiveWindow(this.computeCycle, {
+      computeCurrent: gameState.computeCurrent,
+      allotmentCurrent: gameState.allotmentCurrent,
+      meleeCost: gameState.meleeCost,
+      rangedCost: gameState.rangedCost,
+      cooldowns: {
+        melee: this.cooldownRemainingMs.melee,
+        ranged: this.cooldownRemainingMs.ranged,
+      },
+      attackCommitted: this.hasCommittedAttack(),
+    })) {
+      return;
+    }
+
+    this.endCurrentActiveWindow("Cycle preparing. Attack queues discarded.");
+  }
+
+  private endCurrentActiveWindow(message: string): void {
+    if (this.computeCycle.phase !== "active") {
+      return;
+    }
+
+    this.animateCycleEndDiscard();
+    this.computeCycle = endActiveWindow(this.computeCycle);
+    gameState.setNotice(message);
+    this.updateAttackQueueHud();
+  }
+
+  private hasCommittedAttack(): boolean {
+    return this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0;
+  }
+
+  private hasCommittedAction(): boolean {
+    return this.hasCommittedAttack() || this.dashTimer > 0 || Boolean(this.collapsePlayback);
   }
 
   private updateDrones(dt: number): boolean {
@@ -1662,7 +2012,7 @@ export class ArenaScene extends Phaser.Scene {
         const impactX = projectile.sprite.x;
         const impactY = projectile.sprite.y;
         this.applyRangedSiphonImpact(impactX, impactY, impacted);
-        this.hitDrone(impacted, 31, angle, 180);
+        this.hitDrone(impacted, RANGED_DIRECT_DAMAGE, angle, 180);
         projectile.sprite.destroy();
         return;
       }
@@ -1675,6 +2025,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private updateVisuals(): void {
     const severity = gameState.getVisionBlurStrength();
+    this.updatePreparingBorder();
     if (this.blurFilter) {
       if (severity <= 0) {
         this.blurFilter.strength = 0;
@@ -1690,7 +2041,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.enemyCountLabel?.setText(
-      `Round ${(gameState.roundsFinished + 1).toString().padStart(2, "0")} // Hostiles ${this.drones.length.toString().padStart(2, "0")} // Gate ${
+      `Round ${(gameState.roundsFinished + 1).toString().padStart(2, "0")} // Bugs ${this.drones.length.toString().padStart(2, "0")} // Gate ${
         this.arenaCleared ? "Open" : "Conditional"
       }`,
     );
@@ -1708,7 +2059,7 @@ export class ArenaScene extends Phaser.Scene {
       gameState.setArenaPrompt(
         this.arenaCleared
           ? "Press F to extract and collect the corporate bounty."
-          : "Press F to emergency-extract. Surviving drones will void the bonus.",
+          : "Press F to emergency-extract. Surviving bugs will void the bonus.",
       );
       return;
     }
@@ -1720,16 +2071,14 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (gameState.computeCurrent < 0) {
+    if (gameState.computeCurrent <= 0) {
       gameState.setArenaPrompt(
-        "Rate-limited. Let the Compute Rate Limit recover or keep skating through the debt.",
+        "Compute Rate Limit empty. End the Cycle or reposition.",
       );
       return;
     }
 
-    gameState.setArenaPrompt(
-      "Space dash, left click melee, right click ranged, Q collapse.",
-    );
+    gameState.setArenaPrompt("");
   }
 
   private canExtract(): boolean {
@@ -1824,6 +2173,39 @@ export class ArenaScene extends Phaser.Scene {
     if (progress >= 1) {
       this.finishCollapsePlayback(playback);
     }
+  }
+
+  private updatePreparingBorder(): void {
+    if (this.preparingBorderBars.length <= 0) {
+      return;
+    }
+
+    const preparing = this.computeCycle.phase === "preparing";
+    this.preparingBorderBars.forEach((bar) => bar.setVisible(preparing));
+    if (!preparing) {
+      return;
+    }
+
+    const pulse = 0.7 + Math.sin(this.timelineTimeMs * 0.012) * 0.18;
+    this.preparingBorderBars.forEach((bar) => bar.setAlpha(pulse));
+  }
+
+  private createPreparingBorder(): void {
+    const thickness = 6;
+    const inset = thickness / 2;
+    const color = 0xff4058;
+    this.preparingBorderBars = [
+      this.add.rectangle(this.scale.width / 2, inset, this.scale.width, thickness, color, 0.9),
+      this.add.rectangle(this.scale.width / 2, this.scale.height - inset, this.scale.width, thickness, color, 0.9),
+      this.add.rectangle(inset, this.scale.height / 2, thickness, this.scale.height, color, 0.9),
+      this.add.rectangle(this.scale.width - inset, this.scale.height / 2, thickness, this.scale.height, color, 0.9),
+    ];
+
+    this.preparingBorderBars.forEach((bar) => {
+      bar.setScrollFactor(0);
+      bar.setDepth(9_997);
+      bar.setVisible(false);
+    });
   }
 
   private finishCollapsePlayback(playback: CollapsePlayback): void {
@@ -2073,6 +2455,7 @@ export class ArenaScene extends Phaser.Scene {
 
     return {
       runState: gameState.createArenaSnapshot(),
+      computeCycle: this.computeCycle,
       player: {
         position: { x: this.player.x, y: this.player.y },
         velocity: { x: this.velocity.x, y: this.velocity.y },
@@ -2156,6 +2539,7 @@ export class ArenaScene extends Phaser.Scene {
     this.destroyAllDrones();
 
     this.arenaCleared = snapshot.arenaCleared;
+    this.computeCycle = snapshot.computeCycle ?? startActiveWindow(createStarterComputeCycle(this.timelineTimeMs + gameState.runId), gameState.computeMax);
     this.velocity.set(snapshot.player.velocity.x, snapshot.player.velocity.y);
     this.dashDirection.set(snapshot.player.dashDirection.x, snapshot.player.dashDirection.y);
     this.playerFacing = snapshot.player.facing;

@@ -1,0 +1,3 @@
+# Cycles For Attack Cards
+
+Quant Feudalism will test deck-like **Statement** and **Function** attacks through real-time **Cycles** instead of passive Compute Rate Limit regeneration and cache discounts. Each arena deployment starts with a freshly shuffled fixed **Starter Deck**; each **Active Window** refills Compute Rate Limit and deals attack cards into **Statement** and **Function** **Attack Queues**, then a **Preparing Window** creates a short survival and repositioning beat before the next cycle. This keeps the prototype focused on whether card-driven attack pacing improves arena combat, while leaving deck construction, upgraded cards, and Collapse-as-card behavior out of scope for this branch.

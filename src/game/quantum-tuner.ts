@@ -1,3 +1,5 @@
+import type { ComputeCycleState } from "./compute-cycle";
+
 export const QUANTUM_TUNER_HISTORY_WINDOW_MS = 15_000;
 export const QUANTUM_TUNER_REWIND_MS = 5_000;
 export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 50;
@@ -24,6 +26,7 @@ export interface ArenaRunStateSnapshotRecord {
   allotmentCurrent: number;
   integrityCurrent: number;
   kills: number;
+  extractionReady?: boolean;
   notice: string;
   arenaPrompt: string;
   computeRegenDelayRemainingMs: number;
@@ -68,6 +71,7 @@ export interface ProjectileArenaSnapshot {
 
 export interface ArenaSnapshot {
   runState: ArenaRunStateSnapshotRecord;
+  computeCycle: ComputeCycleState;
   player: PlayerArenaSnapshot;
   arenaCleared: boolean;
   projectiles: ProjectileArenaSnapshot[];
