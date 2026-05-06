@@ -141,6 +141,28 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly droneLungeDuration = 0.18;
   private static readonly droneLungeCooldown = 1.35;
   private static readonly droneLungeSpeed = 470;
+  private static readonly enemySpawnPositions = [
+    [540, 240],
+    [710, 280],
+    [940, 250],
+    [1140, 450],
+    [980, 660],
+    [1340, 370],
+    [1290, 900],
+    [780, 920],
+    [430, 610],
+    [1120, 1010],
+    [1480, 720],
+    [620, 1060],
+    [1240, 250],
+    [260, 260],
+    [1510, 260],
+    [260, 900],
+    [1490, 1010],
+    [900, 500],
+    [1450, 560],
+    [520, 900],
+  ] as const;
 
   private readonly arenaWidth = 1640;
   private readonly arenaHeight = 1180;
@@ -640,24 +662,8 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private spawnEnemies(): void {
-    const positions = [
-      [540, 240],
-      [710, 280],
-      [940, 250],
-      [1140, 450],
-      [980, 660],
-      [1340, 370],
-      [1290, 900],
-      [780, 920],
-      [430, 610],
-      [1120, 1010],
-      [1480, 720],
-      [620, 1060],
-      [1240, 250],
-    ] as const;
-
-    const enemyCount = Math.min(positions.length, 5 + gameState.roundsFinished);
-    this.enemySpawnPoints = positions.slice(0, enemyCount).map(([x, y], index) => ({
+    const enemyCount = Math.min(ArenaScene.enemySpawnPositions.length, 5 + gameState.roundsFinished);
+    this.enemySpawnPoints = ArenaScene.enemySpawnPositions.slice(0, enemyCount).map(([x, y], index) => ({
       id: index,
       x,
       y,
@@ -1203,8 +1209,8 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (!gameState.canUseAbility()) {
-      gameState.setNotice("Statement denied. Compute Rate Limit or Compute Credits debt must recover first.");
+    if (!gameState.canUseAbility(attempt.cost)) {
+      gameState.setNotice("Statement denied. Not enough Compute Rate Limit or Compute Credits.");
       return;
     }
 
@@ -1214,7 +1220,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     if (!gameState.spend(attempt.cost)) {
-      gameState.setNotice("Statement impulse denied. You are fully rate-limited.");
+      gameState.setNotice("Statement impulse denied. Not enough Compute remains.");
       return;
     }
 
@@ -1299,8 +1305,8 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (!gameState.canUseAbility()) {
-      gameState.setNotice("Function denied. Compute Rate Limit or Compute Credits debt must recover first.");
+    if (!gameState.canUseAbility(attempt.cost)) {
+      gameState.setNotice("Function denied. Not enough Compute Rate Limit or Compute Credits.");
       return;
     }
 
@@ -1310,7 +1316,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     if (!gameState.spend(attempt.cost)) {
-      gameState.setNotice("Function cast rejected. Compute Credit reserve fully seized.");
+      gameState.setNotice("Function cast rejected. Not enough Compute remains.");
       return;
     }
 
@@ -1490,9 +1496,7 @@ export class ArenaScene extends Phaser.Scene {
   private checkAutomaticCycleEnd(): void {
     if (!shouldEndActiveWindow(this.computeCycle, {
       computeCurrent: gameState.computeCurrent,
-      computeOverdrawCap: gameState.computeOverdrawCap,
       allotmentCurrent: gameState.allotmentCurrent,
-      allotmentOverdrawCap: gameState.allotmentOverdrawCap,
       meleeCost: gameState.meleeCost,
       rangedCost: gameState.rangedCost,
       cooldowns: {
@@ -1788,9 +1792,9 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (gameState.computeCurrent < 0) {
+    if (gameState.computeCurrent <= 0) {
       gameState.setArenaPrompt(
-        "Compute Rate Limit exhausted. End the Cycle or reposition.",
+        "Compute Rate Limit empty. End the Cycle or reposition.",
       );
       return;
     }

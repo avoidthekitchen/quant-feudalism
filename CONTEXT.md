@@ -57,7 +57,7 @@ The fixed initial set of attack cards used to test whether **Cycles** improve ar
 _Avoid_: Build, loadout
 
 **Cycle End**:
-The transition from an **Active Window** to a **Preparing Window**, either because no queued attack card can be played or because the player ends the cycle early.
+The transition from an **Active Window** to a **Preparing Window**, either because no queued attack card can be afforded or because the player ends the cycle early.
 _Avoid_: End turn
 
 ## Relationships
@@ -75,7 +75,7 @@ _Avoid_: End turn
 - An **Attack Card** belongs to exactly one **Attack Queue** while it is available.
 - A played **Attack Card** moves from its **Attack Queue** to discard immediately.
 - An **Attack Card** is played only when its attack commits; rejected inputs do not consume cards.
-- A played **Attack Card** spends both short-term Compute Rate Limit and long-term Compute Credits.
+- A played **Attack Card** spends both short-term Compute Rate Limit and long-term Compute Credits, and can be played only when both resources can pay its full cost.
 - **Function** siphon can restore long-term Compute Credits, but it does not restore Compute Rate Limit or change the **Cycle**.
 - **Dash** does not consume **Attack Cards** and is not limited to one part of the **Cycle**.
 - During a **Preparing Window**, attacks are unavailable, movement is slowed, and Dash remains available.

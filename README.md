@@ -59,7 +59,7 @@ Each save file now revolves around runs. A run starts in the shop, spans repeate
 
 Within a run, start in the shop, buy Compute Credits with bug bounty credits, deploy into the arena, clear bugs, and extract at the northern gate. Clearing all bugs pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving bugs void the clear bonus.
 
-The first arena round starts with `5` bugs. Each cleared round increases future bug count by `1`, up to the available spawn set. `Rounds Finished` and `Kills` are tracked across the whole run, and the shop sidebar shows the top three runs ranked by rounds finished, with kills as a secondary stat.
+The first arena round starts with `5` bugs. Each cleared round increases future bug count by `1`, up to `20` hand-placed spawn points. `Rounds Finished` and `Kills` are tracked across the whole run, and the shop sidebar shows the top three runs ranked by rounds finished, with kills as a secondary stat.
 
 ## Resources
 
@@ -68,7 +68,7 @@ Compute has two linked limits:
 - Compute Rate Limit is the short-term meter. It starts at `96` and refills at the start of each Active Window.
 - Compute Credits are the purchased long-term reserve. They start at `1360`, cap at `2800`, and are spent alongside the rate limit.
 
-Statement and Function Attack Cards spend from both Compute Rate Limit and Compute Credits. If either resource is driven into debt, attacks are denied once the overdraw caps are reached.
+Statement and Function Attack Cards spend from both Compute Rate Limit and Compute Credits. An Attack Card can only be played when both resources can pay its full cost, so attacks never drive Compute Rate Limit or Compute Credits below zero.
 
 Bug bounty credits are run-scoped currency earned from arena results. They buy Compute Credit refills during the current run.
 
@@ -167,7 +167,7 @@ The arena runs through repeating Cycles:
 - The lower-center arena HUD shows the Statement and Function Attack Queues, draw pile count, and discard pile count.
 - Played Attack Cards go to discard immediately.
 - Press `E` during the Active Window to discard the remaining queued cards and end the cycle early.
-- The Active Window also ends automatically after committed attacks resolve when no queued Attack Card can become playable with current resources.
+- The Active Window also ends automatically after committed attacks resolve when no queued Attack Card can be afforded with current resources.
 - Cycle End discards remaining queued Attack Cards and starts a `3s` Preparing Window.
 - During Preparing, attacks are unavailable, movement is slowed to `60%`, Dash remains free and available, and bugs behave normally.
 - When Preparing completes, the next Active Window refills Compute Rate Limit and draws back to the queue limit.

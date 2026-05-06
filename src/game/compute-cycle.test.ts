@@ -85,9 +85,7 @@ test("active window ends only when no queued card can be afforded after cooldown
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
       computeCurrent: 18,
-      computeOverdrawCap: 64,
       allotmentCurrent: 100,
-      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 400, ranged: 0 },
@@ -97,10 +95,8 @@ test("active window ends only when no queued card can be afforded after cooldown
   );
   assert.equal(
     shouldEndActiveWindow(onlyRanged, {
-      computeCurrent: -64,
-      computeOverdrawCap: 64,
+      computeCurrent: 39,
       allotmentCurrent: 100,
-      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 400 },
@@ -111,9 +107,7 @@ test("active window ends only when no queued card can be afforded after cooldown
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
       computeCurrent: 18,
-      computeOverdrawCap: 64,
       allotmentCurrent: 100,
-      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 0 },
@@ -123,7 +117,7 @@ test("active window ends only when no queued card can be afforded after cooldown
   );
 });
 
-test("active window stays open while queued cards can still overdraw within caps", () => {
+test("active window ends when queued cards cannot be afforded", () => {
   const started = startActiveWindow(createStarterComputeCycle(7), 96);
   const onlyMelee = {
     ...started,
@@ -135,23 +129,19 @@ test("active window stays open while queued cards can still overdraw within caps
 
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
-      computeCurrent: -12,
-      computeOverdrawCap: 64,
-      allotmentCurrent: -120,
-      allotmentOverdrawCap: 560,
+      computeCurrent: 17,
+      allotmentCurrent: 100,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 0 },
       attackCommitted: false,
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
-      computeCurrent: -64,
-      computeOverdrawCap: 64,
-      allotmentCurrent: -120,
-      allotmentOverdrawCap: 560,
+      computeCurrent: 18,
+      allotmentCurrent: 17,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 0 },

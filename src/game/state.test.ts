@@ -89,6 +89,31 @@ test("refundAllotment clamps to max compute credits without restoring rate limit
   assert.equal(state.computeCurrent, 12);
 });
 
+test("spend refuses unaffordable card costs without creating compute debt", () => {
+  const state = new RunState();
+  state.computeCurrent = 17;
+  state.allotmentCurrent = 100;
+
+  assert.equal(state.canUseAbility(18), false);
+  assert.equal(state.spend(18), false);
+  assert.equal(state.computeCurrent, 17);
+  assert.equal(state.allotmentCurrent, 100);
+
+  state.computeCurrent = 18;
+  state.allotmentCurrent = 17;
+
+  assert.equal(state.canUseAbility(18), false);
+  assert.equal(state.spend(18), false);
+  assert.equal(state.computeCurrent, 18);
+  assert.equal(state.allotmentCurrent, 17);
+
+  state.allotmentCurrent = 18;
+
+  assert.equal(state.spend(18), true);
+  assert.equal(state.computeCurrent, 0);
+  assert.equal(state.allotmentCurrent, 0);
+});
+
 test("buyQuantumTuner fails when the rack is already full", () => {
   const state = new RunState();
   state.quantumTuners = state.quantumTunerCap;
@@ -184,9 +209,9 @@ test("arena snapshots preserve and restore regen delay timing", () => {
   assert.ok(restored.computeCurrent > beforeRegen);
 });
 
-test("rate-limit debt does not throttle movement or vision while compute credits remain funded", () => {
+test("empty rate limit does not throttle movement or vision while compute credits remain funded", () => {
   const state = new RunState();
-  state.computeCurrent = -state.computeOverdrawCap;
+  state.computeCurrent = 0;
   state.allotmentCurrent = state.startingAllotment;
 
   assert.equal(state.getMovementMultiplier(), 1);

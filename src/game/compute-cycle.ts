@@ -24,9 +24,7 @@ export interface ComputeCycleState {
 
 export interface ActiveWindowEndCheck {
   computeCurrent: number;
-  computeOverdrawCap: number;
   allotmentCurrent: number;
-  allotmentOverdrawCap: number;
   meleeCost: number;
   rangedCost: number;
   cooldowns: Record<AttackCardType, number>;
@@ -186,10 +184,8 @@ function canEventuallyPlay(
     return false;
   }
 
-  if (
-    check.computeCurrent <= -check.computeOverdrawCap ||
-    check.allotmentCurrent <= -check.allotmentOverdrawCap
-  ) {
+  const cost = type === "melee" ? check.meleeCost : check.rangedCost;
+  if (check.computeCurrent < cost || check.allotmentCurrent < cost) {
     return false;
   }
 

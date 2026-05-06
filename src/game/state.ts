@@ -90,9 +90,7 @@ const STORAGE_KEY = "quant-feudalism-state-v1";
 
 export class RunState extends EventTarget {
   readonly baseComputeMax = 96;
-  readonly computeOverdrawCap = 64;
   readonly allotmentMax = 2800;
-  readonly allotmentOverdrawCap = 560;
   readonly integrityMax = 100;
   readonly computeRegenPerSecond = 13;
   readonly computeRegenDelayMs = 720;
@@ -388,26 +386,17 @@ export class RunState extends EventTarget {
     this.emitChange();
   }
 
-  canUseAbility(): boolean {
-    return (
-      this.computeCurrent > -this.computeOverdrawCap &&
-      this.allotmentCurrent > -this.allotmentOverdrawCap
-    );
+  canUseAbility(amount: number): boolean {
+    return this.computeCurrent >= amount && this.allotmentCurrent >= amount;
   }
 
   spend(amount: number): boolean {
-    if (
-      this.computeCurrent <= -this.computeOverdrawCap ||
-      this.allotmentCurrent <= -this.allotmentOverdrawCap
-    ) {
+    if (!this.canUseAbility(amount)) {
       return false;
     }
 
-    this.computeCurrent = Math.max(-this.computeOverdrawCap, this.computeCurrent - amount);
-    this.allotmentCurrent = Math.max(
-      -this.allotmentOverdrawCap,
-      this.allotmentCurrent - amount,
-    );
+    this.computeCurrent = Math.max(0, this.computeCurrent - amount);
+    this.allotmentCurrent = Math.max(0, this.allotmentCurrent - amount);
     this.computeRegenDelayRemainingMs = this.computeRegenDelayMs;
     this.emitChange();
     return true;
@@ -526,8 +515,8 @@ export class RunState extends EventTarget {
     } = {},
   ): void {
     const { emitChange = true, bumpTimelineVersion = emitChange } = options;
-    this.computeCurrent = snapshot.computeCurrent;
-    this.allotmentCurrent = snapshot.allotmentCurrent;
+    this.computeCurrent = Math.max(0, snapshot.computeCurrent);
+    this.allotmentCurrent = Math.max(0, snapshot.allotmentCurrent);
     this.integrityCurrent = snapshot.integrityCurrent;
     this.kills = snapshot.kills;
     this.extractionReady = snapshot.extractionReady ?? false;
@@ -663,8 +652,8 @@ export class RunState extends EventTarget {
     this.sceneMode = raw.sceneMode;
     this.credits = raw.credits;
     this.computeMax = raw.computeMax;
-    this.computeCurrent = raw.computeCurrent;
-    this.allotmentCurrent = raw.allotmentCurrent;
+    this.computeCurrent = Math.max(0, raw.computeCurrent);
+    this.allotmentCurrent = Math.max(0, raw.allotmentCurrent);
     this.integrityCurrent = raw.integrityCurrent;
     this.kills = raw.kills;
     this.runKills = raw.runKills;
@@ -758,8 +747,7 @@ export class RunState extends EventTarget {
 
   getThrottleSeverity(): number {
     if (this.allotmentCurrent <= 0) {
-      const debt = Math.min(1, Math.max(0, -this.allotmentCurrent) / this.allotmentOverdrawCap);
-      return 0.72 + debt * 0.42;
+      return 0.72;
     }
 
     const lowCreditRatio = Math.min(1, this.allotmentCurrent / (this.allotmentMax * 0.12));
