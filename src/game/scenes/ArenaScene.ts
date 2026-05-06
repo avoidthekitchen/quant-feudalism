@@ -1208,15 +1208,16 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const played = playAttackCard(this.computeCycle, "melee");
+    if (!played.played) {
+      return;
+    }
+
     if (!gameState.spend(attempt.cost)) {
       gameState.setNotice("Statement impulse denied. You are fully rate-limited.");
       return;
     }
 
-    const played = playAttackCard(this.computeCycle, "melee");
-    if (!played.played) {
-      return;
-    }
     this.computeCycle = played.state;
     this.completeAbilityAttempt("melee", attempt);
     const aimVector = new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y);
@@ -1303,15 +1304,16 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const played = playAttackCard(this.computeCycle, "ranged");
+    if (!played.played) {
+      return;
+    }
+
     if (!gameState.spend(attempt.cost)) {
       gameState.setNotice("Function cast rejected. Compute Credit reserve fully seized.");
       return;
     }
 
-    const played = playAttackCard(this.computeCycle, "ranged");
-    if (!played.played) {
-      return;
-    }
     this.computeCycle = played.state;
     this.completeAbilityAttempt("ranged", attempt);
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
@@ -1488,7 +1490,9 @@ export class ArenaScene extends Phaser.Scene {
   private checkAutomaticCycleEnd(): void {
     if (!shouldEndActiveWindow(this.computeCycle, {
       computeCurrent: gameState.computeCurrent,
+      computeOverdrawCap: gameState.computeOverdrawCap,
       allotmentCurrent: gameState.allotmentCurrent,
+      allotmentOverdrawCap: gameState.allotmentOverdrawCap,
       meleeCost: gameState.meleeCost,
       rangedCost: gameState.rangedCost,
       cooldowns: {

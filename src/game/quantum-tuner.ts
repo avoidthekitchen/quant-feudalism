@@ -1,3 +1,5 @@
+import type { ComputeCycleState } from "./compute-cycle";
+
 export const QUANTUM_TUNER_HISTORY_WINDOW_MS = 15_000;
 export const QUANTUM_TUNER_REWIND_MS = 5_000;
 export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 50;
@@ -187,4 +189,3 @@ export function prepareCollapsedHistory(
 function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
 }
-import type { ComputeCycleState } from "./compute-cycle";

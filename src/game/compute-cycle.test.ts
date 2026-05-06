@@ -85,7 +85,9 @@ test("active window ends only when no queued card can be afforded after cooldown
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
       computeCurrent: 18,
+      computeOverdrawCap: 64,
       allotmentCurrent: 100,
+      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 400, ranged: 0 },
@@ -95,8 +97,10 @@ test("active window ends only when no queued card can be afforded after cooldown
   );
   assert.equal(
     shouldEndActiveWindow(onlyRanged, {
-      computeCurrent: 18,
+      computeCurrent: -64,
+      computeOverdrawCap: 64,
       allotmentCurrent: 100,
+      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 400 },
@@ -107,12 +111,52 @@ test("active window ends only when no queued card can be afforded after cooldown
   assert.equal(
     shouldEndActiveWindow(onlyMelee, {
       computeCurrent: 18,
+      computeOverdrawCap: 64,
       allotmentCurrent: 100,
+      allotmentOverdrawCap: 560,
       meleeCost: 18,
       rangedCost: 40,
       cooldowns: { melee: 0, ranged: 0 },
       attackCommitted: true,
     }),
     false,
+  );
+});
+
+test("active window stays open while queued cards can still overdraw within caps", () => {
+  const started = startActiveWindow(createStarterComputeCycle(7), 96);
+  const onlyMelee = {
+    ...started,
+    queues: {
+      melee: started.queues.melee.slice(0, 1),
+      ranged: [],
+    },
+  };
+
+  assert.equal(
+    shouldEndActiveWindow(onlyMelee, {
+      computeCurrent: -12,
+      computeOverdrawCap: 64,
+      allotmentCurrent: -120,
+      allotmentOverdrawCap: 560,
+      meleeCost: 18,
+      rangedCost: 40,
+      cooldowns: { melee: 0, ranged: 0 },
+      attackCommitted: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEndActiveWindow(onlyMelee, {
+      computeCurrent: -64,
+      computeOverdrawCap: 64,
+      allotmentCurrent: -120,
+      allotmentOverdrawCap: 560,
+      meleeCost: 18,
+      rangedCost: 40,
+      cooldowns: { melee: 0, ranged: 0 },
+      attackCommitted: false,
+    }),
+    true,
   );
 });
