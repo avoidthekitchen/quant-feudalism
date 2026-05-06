@@ -72,9 +72,9 @@ Statement and Function Attack Cards spend from both Compute Rate Limit and Compu
 
 Bug bounty credits are run-scoped currency earned from arena results. They buy Compute Credit refills during the current run.
 
-- Minor Refill: `+720` Compute Credits for `20` bug bounty credits.
-- Corporate Slice: `+1440` Compute Credits for `38` bug bounty credits.
-- Dynasty Reserve: `+2400` Compute Credits for `58` bug bounty credits.
+- Minor Refill: `+360` Compute Credits for `60` bug bounty credits.
+- Corporate Slice: `+540` Compute Credits for `84` bug bounty credits.
+- Dynasty Reserve: `+900` Compute Credits for `126` bug bounty credits.
 
 Integrity does not automatically refill after extraction. Repairs must be bought in the shop with Compute Credits:
 

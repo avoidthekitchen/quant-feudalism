@@ -498,7 +498,7 @@ export class RunState extends EventTarget {
 
     const shopNote =
       status === "cleared"
-        ? `${note} Compute Credit refill prices increased by 5%.`
+        ? `${note} Compute Credit refill prices increased by 7.5%.`
         : note;
     this.restoreForShop(shopNote);
     this.maybeEndRunForBankruptcy();

@@ -142,22 +142,22 @@ test("player starts with one quantum tuner charge", () => {
   assert.equal(state.quantumTuners, 1);
 });
 
-test("shop Compute Credit bundle costs compound by five percent after cleared rounds", () => {
-  assert.equal(getScaledShopBundleCost(20, 0), 20);
-  assert.equal(getScaledShopBundleCost(20, 1), 21);
-  assert.equal(getScaledShopBundleCost(20, 2), 23);
-  assert.equal(getScaledShopBundleCost(20, 10), 33);
+test("shop Compute Credit bundle costs compound by seven and a half percent after cleared rounds", () => {
+  assert.equal(getScaledShopBundleCost(60, 0), 60);
+  assert.equal(getScaledShopBundleCost(60, 1), 65);
+  assert.equal(getScaledShopBundleCost(60, 2), 70);
+  assert.equal(getScaledShopBundleCost(60, 10), 124);
 });
 
 test("buyAllotment charges the round-scaled bundle cost", () => {
   const state = new RunState();
   state.roundsFinished = 3;
-  state.credits = 24;
+  state.credits = 75;
   state.allotmentCurrent = 1000;
 
-  assert.equal(state.buyAllotment(720, 20), true);
+  assert.equal(state.buyAllotment(360, 60), true);
   assert.equal(state.credits, 0);
-  assert.equal(state.allotmentCurrent, 1720);
+  assert.equal(state.allotmentCurrent, 1360);
 });
 
 test("arena snapshots preserve and restore regen delay timing", () => {
@@ -264,7 +264,7 @@ test("cleared arena notes mention Compute Credit price increases", () => {
   state.beginArena();
   state.finishArena("cleared", "Cleared.");
 
-  assert.match(state.notice, /Compute Credit refill prices increased by 5%/);
+  assert.match(state.notice, /Compute Credit refill prices increased by 7.5%/);
 });
 
 test("manual end records a summary without adding extra rewards", () => {
