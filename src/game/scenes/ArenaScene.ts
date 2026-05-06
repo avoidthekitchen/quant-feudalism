@@ -65,12 +65,28 @@ type CooldownIndicator = {
 
 type AttackQueueHud = {
   container: Phaser.GameObjects.Container;
-  meleeCards: Phaser.GameObjects.Text[];
-  rangedCards: Phaser.GameObjects.Text[];
+  meleeCards: HudCardView[];
+  rangedCards: HudCardView[];
+  preparePile: CardPileView;
+  shufflePile: CardPileView;
   drawCount: Phaser.GameObjects.Text;
   discardCount: Phaser.GameObjects.Text;
   phaseLabel: Phaser.GameObjects.Text;
   border: Phaser.GameObjects.Rectangle;
+};
+
+type HudCardView = {
+  container: Phaser.GameObjects.Container;
+  frame: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  cross: Phaser.GameObjects.Graphics;
+  homeX: number;
+  homeY: number;
+};
+
+type CardPileView = {
+  container: Phaser.GameObjects.Container;
+  cards: Phaser.GameObjects.Rectangle[];
 };
 
 type EnemySpawnPoint = {
@@ -416,6 +432,9 @@ export class ArenaScene extends Phaser.Scene {
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
     this.updateAttackQueueHud();
+    if (!data?.resume) {
+      this.animateDeal();
+    }
     this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
     gameState.setExtractionReady(this.arenaCleared);
     this.saveResumeCheckpoint();
@@ -1063,12 +1082,27 @@ export class ArenaScene extends Phaser.Scene {
 
     const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-238 + index * 28, -7));
     const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(92 + index * 28, -7));
-    container.add([border, meleeLabel, rangedLabel, drawCount, discardCount, phaseLabel, ...meleeCards, ...rangedCards]);
+    const preparePile = this.createCardPile(54, this.scale.height - 60);
+    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 60);
+    container.add([
+      border,
+      meleeLabel,
+      rangedLabel,
+      drawCount,
+      discardCount,
+      phaseLabel,
+      ...meleeCards.map((card) => card.container),
+      ...rangedCards.map((card) => card.container),
+    ]);
 
+    preparePile.container.setVisible(false);
+    shufflePile.container.setVisible(false);
     this.attackQueueHud = {
       container,
       meleeCards,
       rangedCards,
+      preparePile,
+      shufflePile,
       drawCount,
       discardCount,
       phaseLabel,
@@ -1076,17 +1110,54 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
-  private createHudCard(x: number, y: number): Phaser.GameObjects.Text {
-    const card = this.add.text(x, y, "", {
+  private createCardPile(x: number, y: number): CardPileView {
+    const container = this.add.container(x, y);
+    container.setScrollFactor(0);
+    container.setDepth(10_001);
+
+    const cards = Array.from({ length: 6 }, (_, index) => {
+      const card = this.add.rectangle(index * 2, -index * 2, 28, 34, index % 2 === 0 ? 0xdffcf3 : 0xffcf66, 0.96);
+      card.setStrokeStyle(2, 0x071015, 0.72);
+      return card;
+    });
+
+    container.add(cards);
+    return { container, cards };
+  }
+
+  private createHudCard(x: number, y: number): HudCardView {
+    const container = this.add.container(x, y);
+    const frame = this.add.rectangle(0, 0, 24, 27, 0xdffcf3, 1);
+    frame.setStrokeStyle(2, 0x071015, 0.5);
+
+    const label = this.add.text(0, 0, "", {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "15px",
       color: "#071015",
-      backgroundColor: "#dffcf3",
-      padding: { left: 7, right: 7, top: 4, bottom: 4 },
     });
-    card.setOrigin(0.5);
-    card.setVisible(false);
-    return card;
+    label.setOrigin(0.5);
+
+    const cross = this.add.graphics();
+    cross.lineStyle(3, 0xff3d5a, 0.92);
+    cross.beginPath();
+    cross.moveTo(-8, -9);
+    cross.lineTo(8, 9);
+    cross.moveTo(8, -9);
+    cross.lineTo(-8, 9);
+    cross.strokePath();
+    cross.setVisible(false);
+
+    container.add([frame, label, cross]);
+    container.setVisible(false);
+
+    return {
+      container,
+      frame,
+      label,
+      cross,
+      homeX: x,
+      homeY: y,
+    };
   }
 
   private updateAttackQueueHud(): void {
@@ -1096,6 +1167,8 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     hud.container.setPosition(this.scale.width / 2, this.scale.height - 62);
+    hud.preparePile.container.setPosition(54, this.scale.height - 58);
+    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - 58);
     const preparing = this.computeCycle.phase === "preparing";
     hud.border.setStrokeStyle(2, preparing ? 0xffcf66 : 0x60ffd3, preparing ? 0.84 : 0.72);
     hud.border.setFillStyle(preparing ? 0x1d1710 : 0x061016, 0.66);
@@ -1108,52 +1181,249 @@ export class ArenaScene extends Phaser.Scene {
     hud.discardCount.setText(`DISCARD ${this.computeCycle.discardPile.length}`);
     this.syncHudCards(hud.meleeCards, this.computeCycle.queues.melee, "S", preparing);
     this.syncHudCards(hud.rangedCards, this.computeCycle.queues.ranged, "F", preparing);
+    this.syncPreparePile(preparing);
   }
 
   private syncHudCards(
-    views: Phaser.GameObjects.Text[],
+    views: HudCardView[],
     cards: { type: AttackCardType }[],
     label: string,
-    dimmed: boolean,
+    preparing: boolean,
   ): void {
     views.forEach((view, index) => {
       const visible = index < cards.length;
-      view.setVisible(visible);
+      view.container.setVisible(visible);
       if (!visible) {
+        this.tweens.killTweensOf(view.container);
+        view.container.setPosition(view.homeX, view.homeY);
+        view.container.setAngle(0);
         return;
       }
 
-      view.setText(label);
-      view.setAlpha(dimmed ? 0.42 : 1);
-      view.setBackgroundColor(label === "S" ? "#dffcf3" : "#ffcf66");
+      const type = cards[index]?.type ?? (label === "S" ? "melee" : "ranged");
+      const blocked = preparing || !this.canAffordAttackCard(type);
+      const fill = type === "melee" ? 0xdffcf3 : 0xffcf66;
+      view.label.setText(label);
+      view.label.setColor(blocked ? "#7c8890" : "#071015");
+      view.frame.setFillStyle(blocked ? 0x22313a : fill, blocked ? 0.72 : 1);
+      view.frame.setStrokeStyle(2, blocked ? 0xff3d5a : 0x071015, blocked ? 0.86 : 0.5);
+      view.cross.setVisible(blocked);
     });
   }
 
   private destroyAttackQueueHud(): void {
+    this.killAttackQueueHudTweens();
+    this.attackQueueHud?.preparePile.container.destroy();
+    this.attackQueueHud?.shufflePile.container.destroy();
     this.attackQueueHud?.container.destroy();
     this.attackQueueHud = undefined;
   }
 
-  private animateDeal(): void {
-    this.pulseAttackQueueHud(1.04, 180);
-  }
-
-  private animateCycleEndDiscard(): void {
-    this.pulseAttackQueueHud(0.96, 160);
-  }
-
-  private pulseAttackQueueHud(scale: number, duration: number): void {
+  private killAttackQueueHudTweens(): void {
     const hud = this.attackQueueHud;
     if (!hud) {
       return;
     }
 
-    this.tweens.add({
-      targets: hud.container,
-      scale: { from: scale, to: 1 },
-      duration,
-      ease: "Sine.easeOut",
+    this.tweens.killTweensOf([
+      ...hud.meleeCards.map((card) => card.container),
+      ...hud.rangedCards.map((card) => card.container),
+      ...hud.preparePile.cards,
+      ...hud.shufflePile.cards,
+    ]);
+  }
+
+  private canAffordAttackCard(type: AttackCardType): boolean {
+    const cost = type === "melee" ? gameState.meleeCost : gameState.rangedCost;
+    return gameState.computeCurrent >= cost && gameState.allotmentCurrent >= cost;
+  }
+
+  private syncPreparePile(preparing: boolean): void {
+    const pile = this.attackQueueHud?.preparePile;
+    if (!pile) {
+      return;
+    }
+
+    if (!preparing) {
+      if (pile.container.visible) {
+        this.tweens.killTweensOf(pile.cards);
+      }
+      pile.container.setVisible(false);
+      this.resetCardPile(pile);
+      return;
+    }
+
+    if (pile.container.visible) {
+      return;
+    }
+
+    pile.container.setVisible(true);
+    this.resetCardPile(pile);
+    pile.cards.forEach((card, index) => {
+      this.tweens.add({
+        targets: card,
+        x: (index - 2.5) * 8,
+        y: -Math.abs(index - 2.5) * 3,
+        angle: (index - 2.5) * 9,
+        duration: 420,
+        delay: index * 36,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: 120,
+      });
     });
+  }
+
+  private resetCardPile(pile: CardPileView): void {
+    pile.cards.forEach((card, index) => {
+      card.setPosition(index * 2, -index * 2);
+      card.setAngle(0);
+      card.setAlpha(0.96);
+    });
+  }
+
+  private animateDeal(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const cards = [...hud.meleeCards, ...hud.rangedCards]
+      .filter((card) => card.container.visible)
+      .sort((left, right) => left.homeX - right.homeX);
+    const startX = -this.scale.width / 2 - 46;
+
+    cards.forEach((card, index) => {
+      this.tweens.killTweensOf(card.container);
+      card.container.setPosition(startX - index * 10, card.homeY);
+      card.container.setAngle(-9);
+      this.tweens.add({
+        targets: card.container,
+        x: card.homeX,
+        angle: 0,
+        duration: 260,
+        delay: index * 42,
+        ease: "Cubic.easeOut",
+      });
+    });
+  }
+
+  private animateShufflePile(): void {
+    const pile = this.attackQueueHud?.shufflePile;
+    if (!pile) {
+      return;
+    }
+
+    this.tweens.killTweensOf(pile.cards);
+    pile.container.setVisible(true);
+    this.resetCardPile(pile);
+    pile.cards.forEach((card, index) => {
+      this.tweens.add({
+        targets: card,
+        x: index % 2 === 0 ? -18 : 18,
+        y: -index * 2,
+        angle: index % 2 === 0 ? -16 : 16,
+        alpha: 1,
+        duration: 120,
+        delay: index * 42,
+        ease: "Sine.easeOut",
+        yoyo: true,
+        repeat: 3,
+        onComplete: () => {
+          if (index === pile.cards.length - 1) {
+            pile.container.setVisible(false);
+            this.resetCardPile(pile);
+          }
+        },
+      });
+    });
+  }
+
+  private animateCycleEndDiscard(): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    [...hud.meleeCards, ...hud.rangedCards].forEach((card, index) => {
+      if (card.container.visible) {
+        this.animateDiscardedCard(card, index * 24);
+      }
+    });
+  }
+
+  private animatePlayedCard(type: AttackCardType): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const card = (type === "melee" ? hud.meleeCards : hud.rangedCards).find((view) => view.container.visible);
+    if (card) {
+      this.tweens.killTweensOf(card.container);
+      this.animateDiscardedCard(card, 0);
+    }
+  }
+
+  private animateDiscardedCard(card: HudCardView, delay: number): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const flying = this.createFlyingHudCard(
+      card.label.text,
+      hud.container.x + card.container.x,
+      hud.container.y + card.container.y,
+      card.frame.fillColor,
+      card.cross.visible,
+    );
+    const targetY = flying.y + Phaser.Math.Between(-12, 12);
+    this.tweens.add({
+      targets: flying,
+      x: this.scale.width + 62,
+      y: targetY,
+      angle: 18,
+      alpha: 0,
+      duration: 280,
+      delay,
+      ease: "Cubic.easeIn",
+      onComplete: () => flying.destroy(),
+    });
+  }
+
+  private createFlyingHudCard(
+    labelText: string,
+    x: number,
+    y: number,
+    fillColor: number,
+    crossed: boolean,
+  ): Phaser.GameObjects.Container {
+    const container = this.trackTransientVisual(this.add.container(x, y));
+    container.setScrollFactor(0);
+    container.setDepth(10_001);
+
+    const frame = this.add.rectangle(0, 0, 24, 27, fillColor, crossed ? 0.72 : 1);
+    frame.setStrokeStyle(2, crossed ? 0xff3d5a : 0x071015, crossed ? 0.86 : 0.5);
+    const label = this.add.text(0, 0, labelText, {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "15px",
+      color: crossed ? "#7c8890" : "#071015",
+    });
+    label.setOrigin(0.5);
+    const cross = this.add.graphics();
+    cross.lineStyle(3, 0xff3d5a, 0.92);
+    cross.beginPath();
+    cross.moveTo(-8, -9);
+    cross.lineTo(8, 9);
+    cross.moveTo(8, -9);
+    cross.lineTo(-8, 9);
+    cross.strokePath();
+    cross.setVisible(crossed);
+
+    container.add([frame, label, cross]);
+    return container;
   }
 
   private cooldownForAction(action: AbilityAction): number {
@@ -1224,6 +1494,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    this.animatePlayedCard("melee");
     this.computeCycle = played.state;
     this.completeAbilityAttempt("melee", attempt);
     const aimVector = new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y);
@@ -1320,6 +1591,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    this.animatePlayedCard("ranged");
     this.computeCycle = played.state;
     this.completeAbilityAttempt("ranged", attempt);
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
@@ -1477,10 +1749,17 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
+    const drawCountBefore = this.computeCycle.drawPile.length;
+    const discardCountBefore = this.computeCycle.discardPile.length;
+    const queuedBefore = this.computeCycle.queues.melee.length + this.computeCycle.queues.ranged.length;
     this.computeCycle = advanceComputeCycle(this.computeCycle, deltaMs, gameState.computeMax);
     if (this.computeCycle.phase === "active") {
       gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
       gameState.setNotice("Cycle active. Attack queues authorized.");
+      this.updateAttackQueueHud();
+      if (discardCountBefore > 0 && drawCountBefore < this.computeCycle.queueLimit - queuedBefore) {
+        this.animateShufflePile();
+      }
       this.animateDeal();
     }
   }
