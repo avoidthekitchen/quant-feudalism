@@ -35,19 +35,18 @@ import {
 } from "../generated-art";
 import { playBackgroundMusic } from "../music";
 import {
-  extractHistoryRange,
-  getCollapseAvailability,
-  prepareCollapsedHistory,
-  QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS,
-  QUANTUM_TUNER_REWIND_MS,
-  recordArenaSnapshot,
-  type ArenaSnapshot,
-  type EnemyArenaSnapshot,
-  type PlayerArenaSnapshot,
-  type ProjectileArenaSnapshot,
-  type SnapshotCacheFlags,
-  type TimedArenaSnapshot,
-} from "../quantum-tuner";
+   extractHistoryRange,
+   getCollapseAvailability,
+   prepareCollapsedHistory,
+   QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS,
+   QUANTUM_TUNER_REWIND_MS,
+   recordArenaSnapshot,
+   type ArenaSnapshot,
+   type EnemyArenaSnapshot,
+   type PlayerArenaSnapshot,
+   type ProjectileArenaSnapshot,
+   type TimedArenaSnapshot,
+ } from "../quantum-tuner";
 import { gameState, type SavedArenaResume } from "../state";
 
 type AbilityAction = CombatAbilityAction;
@@ -218,22 +217,7 @@ export class ArenaScene extends Phaser.Scene {
     melee: 0,
     ranged: 0,
   };
-  private cacheDiscountBlocked: SnapshotCacheFlags = {
-    dash: false,
-    melee: false,
-    ranged: false,
-  };
   private cooldownIndicators: Partial<Record<AbilityAction, CooldownIndicator>> = {};
-  private cacheWindowActive: Record<AbilityAction, boolean> = {
-    dash: false,
-    melee: false,
-    ranged: false,
-  };
-  private cacheWindowPulseUntilMs: Record<AbilityAction, number> = {
-    dash: 0,
-    melee: 0,
-    ranged: 0,
-  };
   private computeCycle: ComputeCycleState = startActiveWindow(createStarterComputeCycle(1), gameState.computeMax);
   private attackQueueHud?: AttackQueueHud;
   private transientVisuals = new Set<Phaser.GameObjects.GameObject>();
@@ -279,21 +263,6 @@ export class ArenaScene extends Phaser.Scene {
     this.playerFacing = "s";
     this.currentPlayerAnim = "";
     this.cooldownRemainingMs = {
-      dash: 0,
-      melee: 0,
-      ranged: 0,
-    };
-    this.cacheDiscountBlocked = {
-      dash: false,
-      melee: false,
-      ranged: false,
-    };
-    this.cacheWindowActive = {
-      dash: false,
-      melee: false,
-      ranged: false,
-    };
-    this.cacheWindowPulseUntilMs = {
       dash: 0,
       melee: 0,
       ranged: 0,
@@ -945,7 +914,6 @@ export class ArenaScene extends Phaser.Scene {
 
   private completeAbilityAttempt(action: AbilityAction, attempt: AbilityAttempt): void {
     this.cooldownRemainingMs[action] = this.cooldownForAction(action);
-    this.cacheDiscountBlocked[action] = false;
   }
 
   private createCooldownIndicators(): void {
@@ -990,7 +958,6 @@ export class ArenaScene extends Phaser.Scene {
       const ready = remainingMs <= 0;
       indicator.container.setVisible(!ready);
       if (ready) {
-        this.cacheWindowActive[action] = false;
         indicator.progress.clear();
         return;
       }
@@ -2305,7 +2272,6 @@ export class ArenaScene extends Phaser.Scene {
             t,
           ),
           cooldowns: chosenPose.cooldowns,
-          cacheDiscountBlocked: chosenPose.cacheDiscountBlocked,
         };
       }
     }
@@ -2471,11 +2437,6 @@ export class ArenaScene extends Phaser.Scene {
           melee: this.cooldownRemainingMs.melee,
           ranged: this.cooldownRemainingMs.ranged,
         },
-        cacheDiscountBlocked: {
-          dash: this.cacheDiscountBlocked.dash,
-          melee: this.cacheDiscountBlocked.melee,
-          ranged: this.cacheDiscountBlocked.ranged,
-        },
       },
       arenaCleared: this.arenaCleared,
       projectiles: this.projectiles.map((projectile): ProjectileArenaSnapshot => ({
@@ -2540,6 +2501,9 @@ export class ArenaScene extends Phaser.Scene {
 
     this.arenaCleared = snapshot.arenaCleared;
     this.computeCycle = snapshot.computeCycle ?? startActiveWindow(createStarterComputeCycle(this.timelineTimeMs + gameState.runId), gameState.computeMax);
+    if (snapshot.computeCycle) {
+      this.computeCycle = { ...this.computeCycle, computeRefill: gameState.computeMax };
+    }
     this.velocity.set(snapshot.player.velocity.x, snapshot.player.velocity.y);
     this.dashDirection.set(snapshot.player.dashDirection.x, snapshot.player.dashDirection.y);
     this.playerFacing = snapshot.player.facing;
@@ -2551,11 +2515,6 @@ export class ArenaScene extends Phaser.Scene {
       dash: snapshot.player.cooldowns.dash,
       melee: snapshot.player.cooldowns.melee,
       ranged: snapshot.player.cooldowns.ranged,
-    };
-    this.cacheDiscountBlocked = {
-      dash: snapshot.player.cacheDiscountBlocked.dash,
-      melee: snapshot.player.cacheDiscountBlocked.melee,
-      ranged: snapshot.player.cacheDiscountBlocked.ranged,
     };
 
     const playerX = this.clampArenaX(snapshot.player.position.x);

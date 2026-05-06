@@ -23,7 +23,6 @@ export interface ArenaRunStateSnapshot {
   extractionReady?: boolean;
   notice: string;
   arenaPrompt: string;
-  computeRegenDelayRemainingMs: number;
 }
 
 export interface RunSummary {
@@ -33,7 +32,6 @@ export interface RunSummary {
   kills: number;
   totalArenaTimeMs?: number;
   quantumTunersUsed: number;
-  computeRateLimitUpgradesGained: number;
   endedAtRunId: number;
 }
 
@@ -69,10 +67,8 @@ export interface PersistedGameState {
   runKills: number;
   roundsFinished: number;
   totalArenaTimeMs?: number;
-  computeRateLimitUpgrades: number;
   quantumTuners: number;
   quantumTunersUsedThisRun: number;
-  computeRateLimitUpgradesThisRun: number;
   extractionReady: boolean;
   notice: string;
   arenaPrompt: string;
@@ -81,7 +77,6 @@ export interface PersistedGameState {
   latestRunSummary: RunSummary | null;
   runHistory: RunHistoryEntry[];
   arenaEntryAllotment: number;
-  computeRegenDelayRemainingMs: number;
   savedArenaResume: SavedArenaResume | null;
 }
 
@@ -92,14 +87,10 @@ export class RunState extends EventTarget {
   readonly baseComputeMax = 96;
   readonly allotmentMax = 2800;
   readonly integrityMax = 100;
-  readonly computeRegenPerSecond = 13;
-  readonly computeRegenDelayMs = 720;
   readonly meleeCost = 18;
   readonly rangedCost = 40;
-  readonly dashCost = 24;
   readonly healAmount = 25;
   readonly healCost = 180;
-  readonly computeRateLimitUpgradeAmount = 16;
   readonly quantumTunerCap = 3;
   readonly quantumTunerCost = 250;
   readonly startingCredits = 30;
@@ -121,10 +112,8 @@ export class RunState extends EventTarget {
   runKills = 0;
   roundsFinished = 0;
   totalArenaTimeMs = 0;
-  computeRateLimitUpgrades = 0;
   quantumTuners = this.startingQuantumTuners;
   quantumTunersUsedThisRun = 0;
-  computeRateLimitUpgradesThisRun = 0;
   extractionReady = false;
   notice = this.defaultNotice;
   arenaPrompt = "";
@@ -141,7 +130,6 @@ export class RunState extends EventTarget {
   runHistory: RunHistoryEntry[] = [];
 
   private arenaEntryAllotment = this.allotmentCurrent;
-  private computeRegenDelayRemainingMs = 0;
   private savedArenaResume: SavedArenaResume | null = null;
 
   emitChange(): void {
@@ -195,7 +183,6 @@ export class RunState extends EventTarget {
       kills: this.getCurrentRunKills(),
       totalArenaTimeMs: this.getCurrentRunTotalArenaTimeMs(),
       quantumTunersUsed: this.quantumTunersUsedThisRun,
-      computeRateLimitUpgradesGained: this.computeRateLimitUpgradesThisRun,
       endedAtRunId: this.runId,
     };
 
@@ -208,7 +195,6 @@ export class RunState extends EventTarget {
     this.extractionReady = false;
     this.kills = 0;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    this.computeRegenDelayRemainingMs = 0;
     this.notice =
       note ??
       (reason === "manual"
@@ -326,35 +312,6 @@ export class RunState extends EventTarget {
     return true;
   }
 
-  getComputeRateLimitUpgradeCost(): number {
-    return 42 + this.computeRateLimitUpgrades * 28;
-  }
-
-  upgradeComputeRateLimit(): boolean {
-    if (!this.canUseShopActions()) {
-      return false;
-    }
-
-    const cost = this.getComputeRateLimitUpgradeCost();
-    if (this.credits < cost) {
-      this.notice = `Compute Rate Limit upgrade denied. ${cost} bug bounty credits required.`;
-      this.emitChange();
-      return false;
-    }
-
-    this.credits -= cost;
-    this.computeRateLimitUpgrades += 1;
-    this.computeRateLimitUpgradesThisRun += 1;
-    this.computeMax += this.computeRateLimitUpgradeAmount;
-    this.computeCurrent = Math.min(
-      this.computeMax,
-      this.computeCurrent + this.computeRateLimitUpgradeAmount,
-    );
-    this.notice = `Compute Rate Limit increased to ${this.computeMax}.`;
-    this.emitChange();
-    return true;
-  }
-
   beginArena(): void {
     if (!this.runActive || this.sceneMode !== "shop") {
       return;
@@ -365,7 +322,6 @@ export class RunState extends EventTarget {
     this.kills = 0;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
-    this.computeRegenDelayRemainingMs = 0;
     this.extractionReady = false;
     this.arenaPrompt = "";
     this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
@@ -375,7 +331,6 @@ export class RunState extends EventTarget {
   restoreForShop(note?: string): void {
     this.sceneMode = "shop";
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    this.computeRegenDelayRemainingMs = 0;
     this.extractionReady = false;
     this.arenaPrompt = "";
     this.kills = 0;
@@ -397,7 +352,6 @@ export class RunState extends EventTarget {
 
     this.computeCurrent = Math.max(0, this.computeCurrent - amount);
     this.allotmentCurrent = Math.max(0, this.allotmentCurrent - amount);
-    this.computeRegenDelayRemainingMs = this.computeRegenDelayMs;
     this.emitChange();
     return true;
   }
@@ -412,38 +366,6 @@ export class RunState extends EventTarget {
     this.allotmentCurrent += refunded;
     this.emitChange();
     return refunded;
-  }
-
-  regenerate(deltaMs: number): void {
-    if (this.sceneMode !== "arena") {
-      return;
-    }
-
-    let regenDeltaMs = deltaMs;
-    if (this.computeRegenDelayRemainingMs > 0) {
-      const consumedDelay = Math.min(this.computeRegenDelayRemainingMs, deltaMs);
-      this.computeRegenDelayRemainingMs -= consumedDelay;
-      regenDeltaMs -= consumedDelay;
-
-      if (this.computeRegenDelayRemainingMs > 0) {
-        return;
-      }
-    }
-
-    if (regenDeltaMs <= 0) {
-      return;
-    }
-
-    const target = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    if (this.computeCurrent >= target) {
-      return;
-    }
-
-    this.computeCurrent = Math.min(
-      target,
-      this.computeCurrent + (this.computeRegenPerSecond * regenDeltaMs) / 1000,
-    );
-    this.emitChange();
   }
 
   applyDamage(amount: number): boolean {
@@ -503,7 +425,6 @@ export class RunState extends EventTarget {
       extractionReady: this.extractionReady,
       notice: this.notice,
       arenaPrompt: this.arenaPrompt,
-      computeRegenDelayRemainingMs: this.computeRegenDelayRemainingMs,
     };
   }
 
@@ -522,7 +443,6 @@ export class RunState extends EventTarget {
     this.extractionReady = snapshot.extractionReady ?? false;
     this.notice = snapshot.notice;
     this.arenaPrompt = snapshot.arenaPrompt;
-    this.computeRegenDelayRemainingMs = snapshot.computeRegenDelayRemainingMs;
     if (bumpTimelineVersion) {
       this.hudTimelineVersion += 1;
     }
@@ -621,10 +541,8 @@ export class RunState extends EventTarget {
       runKills: this.runKills,
       roundsFinished: this.roundsFinished,
       totalArenaTimeMs: this.totalArenaTimeMs,
-      computeRateLimitUpgrades: this.computeRateLimitUpgrades,
       quantumTuners: this.quantumTuners,
       quantumTunersUsedThisRun: this.quantumTunersUsedThisRun,
-      computeRateLimitUpgradesThisRun: this.computeRateLimitUpgradesThisRun,
       extractionReady: this.extractionReady,
       notice: this.notice,
       arenaPrompt: this.arenaPrompt,
@@ -633,7 +551,6 @@ export class RunState extends EventTarget {
       latestRunSummary: this.latestRunSummary ? structuredClone(this.latestRunSummary) : null,
       runHistory: structuredClone(this.runHistory),
       arenaEntryAllotment: this.arenaEntryAllotment,
-      computeRegenDelayRemainingMs: this.computeRegenDelayRemainingMs,
       savedArenaResume: this.savedArenaResume ? structuredClone(this.savedArenaResume) : null,
     };
   }
@@ -659,10 +576,8 @@ export class RunState extends EventTarget {
     this.runKills = raw.runKills;
     this.roundsFinished = raw.roundsFinished;
     this.totalArenaTimeMs = raw.totalArenaTimeMs ?? 0;
-    this.computeRateLimitUpgrades = raw.computeRateLimitUpgrades;
     this.quantumTuners = raw.quantumTuners;
     this.quantumTunersUsedThisRun = raw.quantumTunersUsedThisRun;
-    this.computeRateLimitUpgradesThisRun = raw.computeRateLimitUpgradesThisRun;
     this.extractionReady = raw.extractionReady ?? false;
     this.notice = raw.notice;
     this.arenaPrompt = raw.arenaPrompt;
@@ -671,7 +586,6 @@ export class RunState extends EventTarget {
     this.latestRunSummary = raw.latestRunSummary ? structuredClone(raw.latestRunSummary) : null;
     this.runHistory = structuredClone(raw.runHistory);
     this.arenaEntryAllotment = raw.arenaEntryAllotment;
-    this.computeRegenDelayRemainingMs = raw.computeRegenDelayRemainingMs;
     this.savedArenaResume = isSavedArenaResume(raw.savedArenaResume)
       ? structuredClone(raw.savedArenaResume)
       : null;
@@ -686,7 +600,6 @@ export class RunState extends EventTarget {
         this.sceneMode = "shop";
         this.kills = 0;
         this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-        this.computeRegenDelayRemainingMs = 0;
         this.arenaPrompt = "";
         this.extractionReady = false;
         this.notice =
@@ -803,10 +716,8 @@ export class RunState extends EventTarget {
     this.runKills = 0;
     this.roundsFinished = 0;
     this.totalArenaTimeMs = 0;
-    this.computeRateLimitUpgrades = 0;
     this.quantumTuners = this.startingQuantumTuners;
     this.quantumTunersUsedThisRun = 0;
-    this.computeRateLimitUpgradesThisRun = 0;
     this.extractionReady = false;
     this.notice = this.defaultNotice;
     this.arenaPrompt = "";
@@ -819,7 +730,6 @@ export class RunState extends EventTarget {
       note: "No arena deployment recorded yet.",
     };
     this.arenaEntryAllotment = this.allotmentCurrent;
-    this.computeRegenDelayRemainingMs = 0;
     this.savedArenaResume = null;
   }
 
@@ -875,7 +785,6 @@ function isRunSummary(value: unknown): value is RunSummary {
     isFiniteNumber(value.kills) &&
     (value.totalArenaTimeMs === undefined || isFiniteNumber(value.totalArenaTimeMs)) &&
     isFiniteNumber(value.quantumTunersUsed) &&
-    isFiniteNumber(value.computeRateLimitUpgradesGained) &&
     isFiniteNumber(value.endedAtRunId)
   );
 }
@@ -889,8 +798,7 @@ function isArenaRunStateSnapshot(value: unknown): value is ArenaRunStateSnapshot
     isFiniteNumber(value.kills) &&
     (typeof value.extractionReady === "boolean" || value.extractionReady === undefined) &&
     typeof value.notice === "string" &&
-    typeof value.arenaPrompt === "string" &&
-    isFiniteNumber(value.computeRegenDelayRemainingMs)
+    typeof value.arenaPrompt === "string"
   );
 }
 
@@ -904,19 +812,6 @@ function isSnapshotCooldowns(value: unknown): value is {
     isFiniteNumber(value.dash) &&
     isFiniteNumber(value.melee) &&
     isFiniteNumber(value.ranged)
-  );
-}
-
-function isSnapshotCacheFlags(value: unknown): value is {
-  dash: boolean;
-  melee: boolean;
-  ranged: boolean;
-} {
-  return (
-    isRecord(value) &&
-    typeof value.dash === "boolean" &&
-    typeof value.melee === "boolean" &&
-    typeof value.ranged === "boolean"
   );
 }
 
@@ -945,8 +840,7 @@ function isPlayerArenaSnapshot(value: unknown): boolean {
     isFiniteNumber(value.dashInvulnerabilityTimer) &&
     isFiniteNumber(value.rangedMovementPauseTimer) &&
     isFiniteNumber(value.playerAttackTimer) &&
-    isSnapshotCooldowns(value.cooldowns) &&
-    isSnapshotCacheFlags(value.cacheDiscountBlocked)
+    isSnapshotCooldowns(value.cooldowns)
   );
 }
 
@@ -1053,10 +947,8 @@ function isPersistedGameState(value: unknown): value is PersistedGameState {
     isFiniteNumber(value.runKills) &&
     isFiniteNumber(value.roundsFinished) &&
     (value.totalArenaTimeMs === undefined || isFiniteNumber(value.totalArenaTimeMs)) &&
-    isFiniteNumber(value.computeRateLimitUpgrades) &&
     isFiniteNumber(value.quantumTuners) &&
     isFiniteNumber(value.quantumTunersUsedThisRun) &&
-    isFiniteNumber(value.computeRateLimitUpgradesThisRun) &&
     (typeof value.extractionReady === "boolean" || value.extractionReady === undefined) &&
     typeof value.notice === "string" &&
     typeof value.arenaPrompt === "string" &&
@@ -1066,7 +958,6 @@ function isPersistedGameState(value: unknown): value is PersistedGameState {
     Array.isArray(value.runHistory) &&
     value.runHistory.every(isRunSummary) &&
     isFiniteNumber(value.arenaEntryAllotment) &&
-    isFiniteNumber(value.computeRegenDelayRemainingMs) &&
     (value.savedArenaResume === null || value.savedArenaResume === undefined || isRecord(value.savedArenaResume))
   );
 }
