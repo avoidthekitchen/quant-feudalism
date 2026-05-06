@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getScaledShopBundleCost } from "./constants.ts";
 import { createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
 import { RunState } from "./state.ts";
 
@@ -126,10 +127,37 @@ test("banked tuner charges persist through arena entry and exit", () => {
   assert.equal(state.quantumTuners, 2);
 });
 
+test("new arena deployments discard stale resume checkpoints", () => {
+  const state = new RunState();
+  state.saveArenaResume(makeResumeSnapshot());
+
+  state.beginArena();
+
+  assert.equal(state.getSavedArenaResume(), null);
+});
+
 test("player starts with one quantum tuner charge", () => {
   const state = new RunState();
 
   assert.equal(state.quantumTuners, 1);
+});
+
+test("shop Compute Credit bundle costs compound by five percent after cleared rounds", () => {
+  assert.equal(getScaledShopBundleCost(20, 0), 20);
+  assert.equal(getScaledShopBundleCost(20, 1), 21);
+  assert.equal(getScaledShopBundleCost(20, 2), 23);
+  assert.equal(getScaledShopBundleCost(20, 10), 33);
+});
+
+test("buyAllotment charges the round-scaled bundle cost", () => {
+  const state = new RunState();
+  state.roundsFinished = 3;
+  state.credits = 24;
+  state.allotmentCurrent = 1000;
+
+  assert.equal(state.buyAllotment(720, 20), true);
+  assert.equal(state.credits, 0);
+  assert.equal(state.allotmentCurrent, 1720);
 });
 
 test("arena snapshots preserve and restore regen delay timing", () => {
@@ -228,6 +256,15 @@ test("multiple arena deployments accumulate run rounds and kills", () => {
   assert.equal(state.getCurrentRunKills(), 3);
   assert.equal(state.report.kills, 1);
   assert.equal(state.sceneMode, "shop");
+});
+
+test("cleared arena notes mention Compute Credit price increases", () => {
+  const state = new RunState();
+
+  state.beginArena();
+  state.finishArena("cleared", "Cleared.");
+
+  assert.match(state.notice, /Compute Credit refill prices increased by 5%/);
 });
 
 test("manual end records a summary without adding extra rewards", () => {

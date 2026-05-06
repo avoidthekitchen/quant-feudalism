@@ -4,8 +4,12 @@ import {
   ABILITY_COOLDOWNS_MS,
   calculateRangedSiphonRefund,
   getCooldownProgress,
+  MELEE_DAMAGE,
+  RANGED_DIRECT_DAMAGE,
   RANGED_PULL_FORCE,
   RANGED_PULL_RADIUS,
+  RANGED_PROJECTILE_SPEED,
+  RANGED_SPLASH_DAMAGE,
   type CombatAbilityAction,
 } from "../combat";
 import {
@@ -204,6 +208,7 @@ export class ArenaScene extends Phaser.Scene {
   private quantumTrailGraphics?: Phaser.GameObjects.Graphics;
   private quantumTargetMarker?: Phaser.GameObjects.Arc;
   private collapseOverlay?: Phaser.GameObjects.Rectangle;
+  private preparingBorderBars: Phaser.GameObjects.Rectangle[] = [];
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
@@ -330,6 +335,8 @@ export class ArenaScene extends Phaser.Scene {
     this.collapseOverlay.setScrollFactor(0);
     this.collapseOverlay.setDepth(9_998);
     this.collapseOverlay.setBlendMode(Phaser.BlendModes.SCREEN);
+
+    this.createPreparingBorder();
 
     this.ghostShadow = this.add.image(this.entryPoint.x, this.entryPoint.y + 18, "qf-shadow");
     this.ghostShadow.setScale(0.88, 0.64);
@@ -1251,7 +1258,7 @@ export class ArenaScene extends Phaser.Scene {
       const forwardReach = offset.dot(new Phaser.Math.Vector2(Math.cos(swingAngle), Math.sin(swingAngle)));
 
       if (distance <= ArenaScene.meleeRange && forwardReach > -18 && delta <= 1.08) {
-        this.hitDrone(drone, 24, swingAngle, 250, ArenaScene.meleeStunDuration);
+        this.hitDrone(drone, MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration);
       }
     });
   }
@@ -1326,7 +1333,7 @@ export class ArenaScene extends Phaser.Scene {
     sprite.setRotation(angle);
     sprite.setDepth(this.player.y + 20);
 
-    const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(490);
+    const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(RANGED_PROJECTILE_SPEED);
     sprite.setVelocity(velocity.x, velocity.y);
 
     this.projectiles.push({
@@ -1381,6 +1388,8 @@ export class ArenaScene extends Phaser.Scene {
 
     affected.forEach((drone) => {
       if (drone !== impacted) {
+        const splashAngle = Phaser.Math.Angle.Between(impactX, impactY, drone.sprite.x, drone.sprite.y);
+        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0);
         this.pullDroneTowardPoint(drone, impactX, impactY, RANGED_PULL_FORCE);
       }
     });
@@ -1406,7 +1415,7 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createRangedSiphonVisual(impactX: number, impactY: number, refunded: number): void {
-    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, 20, 0x60ffd3, 0.08));
+    const pulse = this.trackTransientVisual(this.add.circle(impactX, impactY, RANGED_PULL_RADIUS, 0x60ffd3, 0.05));
     pulse.setStrokeStyle(2, 0x60ffd3, 0.65);
     pulse.setDepth(impactY + 18);
 
@@ -1417,7 +1426,7 @@ export class ArenaScene extends Phaser.Scene {
     this.tweens.add({
       targets: pulse,
       alpha: 0,
-      scale: { from: 0.75, to: 1.35 },
+      scale: { from: 0.72, to: 1 },
       duration: 220,
       ease: "Sine.easeOut",
       onComplete: () => pulse.destroy(),
@@ -1716,7 +1725,7 @@ export class ArenaScene extends Phaser.Scene {
         const impactX = projectile.sprite.x;
         const impactY = projectile.sprite.y;
         this.applyRangedSiphonImpact(impactX, impactY, impacted);
-        this.hitDrone(impacted, 31, angle, 180);
+        this.hitDrone(impacted, RANGED_DIRECT_DAMAGE, angle, 180);
         projectile.sprite.destroy();
         return;
       }
@@ -1729,6 +1738,7 @@ export class ArenaScene extends Phaser.Scene {
 
   private updateVisuals(): void {
     const severity = gameState.getVisionBlurStrength();
+    this.updatePreparingBorder();
     if (this.blurFilter) {
       if (severity <= 0) {
         this.blurFilter.strength = 0;
@@ -1876,6 +1886,39 @@ export class ArenaScene extends Phaser.Scene {
     if (progress >= 1) {
       this.finishCollapsePlayback(playback);
     }
+  }
+
+  private updatePreparingBorder(): void {
+    if (this.preparingBorderBars.length <= 0) {
+      return;
+    }
+
+    const preparing = this.computeCycle.phase === "preparing";
+    this.preparingBorderBars.forEach((bar) => bar.setVisible(preparing));
+    if (!preparing) {
+      return;
+    }
+
+    const pulse = 0.7 + Math.sin(this.timelineTimeMs * 0.012) * 0.18;
+    this.preparingBorderBars.forEach((bar) => bar.setAlpha(pulse));
+  }
+
+  private createPreparingBorder(): void {
+    const thickness = 6;
+    const inset = thickness / 2;
+    const color = 0xff4058;
+    this.preparingBorderBars = [
+      this.add.rectangle(this.scale.width / 2, inset, this.scale.width, thickness, color, 0.9),
+      this.add.rectangle(this.scale.width / 2, this.scale.height - inset, this.scale.width, thickness, color, 0.9),
+      this.add.rectangle(inset, this.scale.height / 2, thickness, this.scale.height, color, 0.9),
+      this.add.rectangle(this.scale.width - inset, this.scale.height / 2, thickness, this.scale.height, color, 0.9),
+    ];
+
+    this.preparingBorderBars.forEach((bar) => {
+      bar.setScrollFactor(0);
+      bar.setDepth(9_997);
+      bar.setVisible(false);
+    });
   }
 
   private finishCollapsePlayback(playback: CollapsePlayback): void {

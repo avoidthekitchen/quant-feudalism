@@ -6,8 +6,12 @@ export const ABILITY_COOLDOWNS_MS: Record<CombatAbilityAction, number> = {
   ranged: 820,
 };
 
-export const RANGED_PULL_RADIUS = 112;
+export const RANGED_PROJECTILE_SPEED = 590;
+export const RANGED_PULL_RADIUS = 184;
 export const RANGED_PULL_FORCE = 220;
+export const MELEE_DAMAGE = 23;
+export const RANGED_DIRECT_DAMAGE = 40;
+export const RANGED_SPLASH_DAMAGE = RANGED_DIRECT_DAMAGE / 2;
 export const RANGED_SIPHON_REFUND_PER_ENEMY = 6;
 export const RANGED_SIPHON_REFUND_CAP = 18;
 

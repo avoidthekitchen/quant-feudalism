@@ -4,6 +4,11 @@ import {
   ABILITY_COOLDOWNS_MS,
   calculateRangedSiphonRefund,
   getCooldownProgress,
+  MELEE_DAMAGE,
+  RANGED_DIRECT_DAMAGE,
+  RANGED_PROJECTILE_SPEED,
+  RANGED_PULL_RADIUS,
+  RANGED_SPLASH_DAMAGE,
 } from "./combat.ts";
 
 test("combat cooldowns preserve the existing action cadence without cache discounts", () => {
@@ -18,6 +23,17 @@ test("Function siphon refunds scale per bug and cap below the original shot cost
   assert.equal(calculateRangedSiphonRefund(2), 12);
   assert.equal(calculateRangedSiphonRefund(3), 18);
   assert.equal(calculateRangedSiphonRefund(7), 18);
+});
+
+test("Function attacks use a broad and quick siphon impact", () => {
+  assert.equal(RANGED_PULL_RADIUS, 184);
+  assert.equal(RANGED_PROJECTILE_SPEED, 590);
+});
+
+test("attack damage values preserve Statement tradeoffs and Function splash math", () => {
+  assert.equal(MELEE_DAMAGE, 23);
+  assert.equal(RANGED_DIRECT_DAMAGE, 40);
+  assert.equal(RANGED_SPLASH_DAMAGE, 20);
 });
 
 test("cooldown progress reports readiness for the player-adjacent rings", () => {

@@ -1,5 +1,7 @@
 import type { ArenaSnapshot } from "./quantum-tuner";
 
+import { getScaledShopBundleCost, SHOP_BUNDLES } from "./constants.ts";
+
 export type SceneMode = "shop" | "arena";
 export type ArenaOutcome = "retreated" | "cleared" | "decommissioned";
 export type RunEndReason = "manual" | "bankrupt";
@@ -239,7 +241,9 @@ export class RunState extends EventTarget {
       return false;
     }
 
-    if (this.credits < cost) {
+    const scaledCost = this.getAllotmentBundleCost(amount, cost);
+
+    if (this.credits < scaledCost) {
       this.notice = "Bug bounty credit authorization denied. Clear more bugs or buy cheaper Compute Credits.";
       this.emitChange();
       return false;
@@ -251,12 +255,17 @@ export class RunState extends EventTarget {
       return false;
     }
 
-    this.credits -= cost;
+    this.credits -= scaledCost;
     this.allotmentCurrent = Math.min(this.allotmentMax, this.allotmentCurrent + amount);
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    this.notice = `Procured ${amount} Compute Credits for ${cost} bug bounty credits.`;
+    this.notice = `Procured ${amount} Compute Credits for ${scaledCost} bug bounty credits.`;
     this.emitChange();
     return true;
+  }
+
+  getAllotmentBundleCost(amount: number, baseCost: number): number {
+    const bundle = SHOP_BUNDLES.find((item) => item.amount === amount && item.cost === baseCost);
+    return getScaledShopBundleCost(bundle?.cost ?? baseCost, this.roundsFinished);
   }
 
   buyQuantumTuner(): boolean {
@@ -354,6 +363,7 @@ export class RunState extends EventTarget {
     }
 
     this.sceneMode = "arena";
+    this.savedArenaResume = null;
     this.kills = 0;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
@@ -486,7 +496,11 @@ export class RunState extends EventTarget {
       note,
     };
 
-    this.restoreForShop(note);
+    const shopNote =
+      status === "cleared"
+        ? `${note} Compute Credit refill prices increased by 5%.`
+        : note;
+    this.restoreForShop(shopNote);
     this.maybeEndRunForBankruptcy();
     return this.report;
   }
