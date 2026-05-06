@@ -18,7 +18,7 @@ export interface ArenaRunStateSnapshot {
   allotmentCurrent: number;
   integrityCurrent: number;
   kills: number;
-  extractionReady: boolean;
+  extractionReady?: boolean;
   notice: string;
   arenaPrompt: string;
   computeRegenDelayRemainingMs: number;
@@ -240,7 +240,7 @@ export class RunState extends EventTarget {
     }
 
     if (this.credits < cost) {
-      this.notice = "Shop credit authorization denied. Defeat more drones or buy cheaper Compute Credits.";
+      this.notice = "Bug bounty credit authorization denied. Clear more bugs or buy cheaper Compute Credits.";
       this.emitChange();
       return false;
     }
@@ -254,7 +254,7 @@ export class RunState extends EventTarget {
     this.credits -= cost;
     this.allotmentCurrent = Math.min(this.allotmentMax, this.allotmentCurrent + amount);
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-    this.notice = `Procured ${amount} Compute Credits for ${cost} shop credits.`;
+    this.notice = `Procured ${amount} Compute Credits for ${cost} bug bounty credits.`;
     this.emitChange();
     return true;
   }
@@ -330,7 +330,7 @@ export class RunState extends EventTarget {
 
     const cost = this.getComputeRateLimitUpgradeCost();
     if (this.credits < cost) {
-      this.notice = `Compute Rate Limit upgrade denied. ${cost} shop credits required.`;
+      this.notice = `Compute Rate Limit upgrade denied. ${cost} bug bounty credits required.`;
       this.emitChange();
       return false;
     }
@@ -359,7 +359,7 @@ export class RunState extends EventTarget {
     this.arenaEntryAllotment = this.allotmentCurrent;
     this.computeRegenDelayRemainingMs = 0;
     this.extractionReady = false;
-    this.arenaPrompt = "Space dash, left click melee, right click ranged, Q collapse.";
+    this.arenaPrompt = "";
     this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
     this.emitChange();
   }
@@ -631,7 +631,7 @@ export class RunState extends EventTarget {
       runHistory: structuredClone(this.runHistory),
       arenaEntryAllotment: this.arenaEntryAllotment,
       computeRegenDelayRemainingMs: this.computeRegenDelayRemainingMs,
-      savedArenaResume: null,
+      savedArenaResume: this.savedArenaResume ? structuredClone(this.savedArenaResume) : null,
     };
   }
 
@@ -674,15 +674,21 @@ export class RunState extends EventTarget {
       : null;
 
     if (this.sceneMode === "arena") {
-      this.sceneMode = "shop";
-      this.kills = 0;
-      this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-      this.computeRegenDelayRemainingMs = 0;
-      this.arenaPrompt = "";
-      this.extractionReady = false;
-      this.savedArenaResume = null;
-      this.notice =
-        "Session interrupted during deployment. Returned to procurement chamber with spent resources preserved.";
+      if (this.savedArenaResume) {
+        this.restoreArenaSnapshot(this.savedArenaResume.snapshot.runState, {
+          emitChange: false,
+          bumpTimelineVersion: false,
+        });
+      } else {
+        this.sceneMode = "shop";
+        this.kills = 0;
+        this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
+        this.computeRegenDelayRemainingMs = 0;
+        this.arenaPrompt = "";
+        this.extractionReady = false;
+        this.notice =
+          "Session interrupted during deployment. Returned to procurement chamber with spent resources preserved.";
+      }
     }
 
     if (this.sceneMode === "shop") {
@@ -737,36 +743,21 @@ export class RunState extends EventTarget {
   }
 
   getThrottleSeverity(): number {
-    const computeDebt = Math.max(0, -this.computeCurrent) / this.computeOverdrawCap;
-    const allotmentDebt = Math.max(0, -this.allotmentCurrent) / this.allotmentOverdrawCap;
-    const computePressure = Math.max(0, 1 - this.computeCurrent / (this.computeMax * 0.42));
-    const allotmentPressure = Math.max(0, 1 - this.allotmentCurrent / (this.allotmentMax * 0.12));
-    return Math.min(
-      1.6,
-      Math.max(
-        computePressure * 0.34,
-        allotmentPressure * 0.24,
-        computeDebt * 0.88,
-        computeDebt * 0.48 + allotmentDebt * 0.94,
-      ),
-    );
+    if (this.allotmentCurrent <= 0) {
+      const debt = Math.min(1, Math.max(0, -this.allotmentCurrent) / this.allotmentOverdrawCap);
+      return 0.72 + debt * 0.42;
+    }
+
+    const lowCreditRatio = Math.min(1, this.allotmentCurrent / (this.allotmentMax * 0.12));
+    return Math.max(0, 1 - lowCreditRatio) * 0.5;
   }
 
   getMovementMultiplier(): number {
-    const throttle = this.getThrottleSeverity();
-    const lowAllotmentPenalty =
-      this.allotmentCurrent > 0
-        ? (1 - Math.min(1, this.allotmentCurrent / this.allotmentMax)) * 0.12
-        : 0.18;
-
-    return Math.max(0.18, 1 - throttle * 0.46 - lowAllotmentPenalty);
+    return Math.max(0.48, 1 - this.getThrottleSeverity() * 0.44);
   }
 
   getVisionBlurStrength(): number {
-    const throttle = this.getThrottleSeverity();
-    const allotmentStarved = this.allotmentCurrent <= 0 ? 0.9 : 0;
-    const lowComputeHaze = Math.max(0, 1 - this.computeCurrent / (this.computeMax * 0.55)) * 0.34;
-    return Math.min(1.45, throttle * 1.08 + lowComputeHaze + allotmentStarved);
+    return Math.min(1.15, this.getThrottleSeverity() * 0.95);
   }
 
   getThrottleLabel(): string {
@@ -774,11 +765,7 @@ export class RunState extends EventTarget {
       return "Seized";
     }
 
-    if (this.computeCurrent < 0) {
-      return "Rate-Limited";
-    }
-
-    if (this.computeCurrent < this.computeMax * 0.33) {
+    if (this.getThrottleSeverity() > 0) {
       return "Constrained";
     }
 
@@ -990,10 +977,45 @@ function isProjectileArenaSnapshot(value: unknown): boolean {
   );
 }
 
+function isAttackCard(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    (value.type === "melee" || value.type === "ranged")
+  );
+}
+
+function isAttackQueues(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.melee) &&
+    value.melee.every(isAttackCard) &&
+    Array.isArray(value.ranged) &&
+    value.ranged.every(isAttackCard)
+  );
+}
+
+function isComputeCycleSnapshot(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.phase === "active" || value.phase === "preparing") &&
+    Array.isArray(value.drawPile) &&
+    value.drawPile.every(isAttackCard) &&
+    Array.isArray(value.discardPile) &&
+    value.discardPile.every(isAttackCard) &&
+    isAttackQueues(value.queues) &&
+    isFiniteNumber(value.queueLimit) &&
+    isFiniteNumber(value.preparingRemainingMs) &&
+    isFiniteNumber(value.computeRefill) &&
+    isFiniteNumber(value.seed)
+  );
+}
+
 function isArenaSnapshotRecord(value: unknown): value is ArenaSnapshot {
   return (
     isRecord(value) &&
     isArenaRunStateSnapshot(value.runState) &&
+    isComputeCycleSnapshot(value.computeCycle) &&
     isPlayerArenaSnapshot(value.player) &&
     typeof value.arenaCleared === "boolean" &&
     Array.isArray(value.projectiles) &&

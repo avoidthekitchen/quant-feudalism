@@ -24,6 +24,7 @@ export interface ArenaRunStateSnapshotRecord {
   allotmentCurrent: number;
   integrityCurrent: number;
   kills: number;
+  extractionReady?: boolean;
   notice: string;
   arenaPrompt: string;
   computeRegenDelayRemainingMs: number;
@@ -68,6 +69,7 @@ export interface ProjectileArenaSnapshot {
 
 export interface ArenaSnapshot {
   runState: ArenaRunStateSnapshotRecord;
+  computeCycle: ComputeCycleState;
   player: PlayerArenaSnapshot;
   arenaCleared: boolean;
   projectiles: ProjectileArenaSnapshot[];
@@ -185,3 +187,4 @@ export function prepareCollapsedHistory(
 function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
 }
+import type { ComputeCycleState } from "./compute-cycle";

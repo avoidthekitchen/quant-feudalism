@@ -23,9 +23,8 @@ export class BootScene extends Phaser.Scene {
     gameState.hydrateFromStorage();
 
     if (gameState.sceneMode === "arena") {
-      gameState.restoreForShop(
-        "Session interrupted during deployment. Returned to procurement chamber.",
-      );
+      this.scene.start(SCENES.arena, { resume: gameState.getSavedArenaResume() ?? undefined });
+      return;
     }
 
     this.scene.start(SCENES.shop);

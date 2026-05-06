@@ -49,9 +49,6 @@ const healCostLabel = document.querySelector<HTMLElement>("#heal-cost-label");
 const quantumTunerButton = document.querySelector<HTMLButtonElement>("#quantum-tuner-button");
 const quantumTunerLabel = document.querySelector<HTMLElement>("#quantum-tuner-label");
 const quantumTunerCostLabel = document.querySelector<HTMLElement>("#quantum-tuner-cost-label");
-const rateLimitButton = document.querySelector<HTMLButtonElement>("#rate-limit-button");
-const rateLimitLabel = document.querySelector<HTMLElement>("#rate-limit-label");
-const rateLimitCostLabel = document.querySelector<HTMLElement>("#rate-limit-cost-label");
 const quantumTunersLabel = document.querySelector<HTMLElement>("#quantum-tuners-label");
 const quantumTunerIcons = Array.from(document.querySelectorAll<HTMLElement>(".quantum-tuner-icon"));
 const shopButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".bundle-grid .shop-button"));
@@ -202,11 +199,12 @@ function renderHud(): void {
   olderNote!.textContent = noteHistory[2] ?? "";
   arenaPromptLabel!.textContent = gameState.arenaPrompt;
   reportNote!.textContent =
-    `${gameState.report.note} Shop Credits +${gameState.report.creditsEarned}. Compute Credits spent ${Math.round(gameState.report.allotmentSpent)}.`;
+    `${gameState.report.note} Bug Bounty Credits +${gameState.report.creditsEarned}. Compute Credits spent ${Math.round(gameState.report.allotmentSpent)}.`;
   gameRoot?.classList.toggle("extraction-ready", gameState.extractionReady);
 
   shopOnlyPanels.forEach((panel) => panel.classList.toggle("hidden", !inShop));
   arenaOnlyPanels.forEach((panel) => panel.classList.toggle("hidden", inShop));
+  arenaPromptLabel!.classList.toggle("hidden", inShop || gameState.arenaPrompt.length <= 0);
 
   deployButton!.disabled = deployDisabled;
   deployButton!.textContent = deployDisabled
@@ -237,11 +235,6 @@ function renderHud(): void {
   quantumTunerLabel!.textContent = `Banked Collapse Charge (${gameState.quantumTuners}/${gameState.quantumTunerCap})`;
   quantumTunerCostLabel!.textContent = `${gameState.quantumTunerCost} Compute Credits`;
 
-  const upgradeCost = gameState.getComputeRateLimitUpgradeCost();
-  rateLimitButton!.disabled = !inShop || !gameState.runActive || gameState.credits < upgradeCost;
-  rateLimitLabel!.textContent = `+${gameState.computeRateLimitUpgradeAmount} Compute Rate Limit`;
-  rateLimitCostLabel!.textContent = `${upgradeCost} shop credits`;
-
   shopButtons.forEach((button) => {
     const amount = Number(button.dataset.amount);
     const cost = Number(button.dataset.cost);
@@ -252,7 +245,7 @@ function renderHud(): void {
       gameState.allotmentCurrent >= gameState.allotmentMax;
     const bundle = SHOP_BUNDLES.find((item) => item.amount === amount && item.cost === cost);
     if (bundle) {
-      button.setAttribute("aria-label", `${bundle.label}: buy ${amount} Compute Credits for ${cost} shop credits`);
+      button.setAttribute("aria-label", `${bundle.label}: buy ${amount} Compute Credits for ${cost} bug bounty credits`);
     }
   });
 
@@ -278,12 +271,7 @@ function renderHud(): void {
       runSummaryRounds.textContent = summary.roundsFinished.toString();
       runSummaryKills.textContent = summary.kills.toString();
       runSummaryTuners.textContent = summary.quantumTunersUsed.toString();
-      runSummaryEnhancements.textContent =
-        summary.computeRateLimitUpgradesGained > 0
-          ? `Compute Rate Limit +${
-              summary.computeRateLimitUpgradesGained * gameState.computeRateLimitUpgradeAmount
-            } (${pluralize(summary.computeRateLimitUpgradesGained, "upgrade")})`
-          : "None";
+      runSummaryEnhancements.textContent = "Starter Deck prototype";
     }
   }
 
@@ -306,10 +294,6 @@ healButton?.addEventListener("click", () => {
 
 quantumTunerButton?.addEventListener("click", () => {
   gameState.buyQuantumTuner();
-});
-
-rateLimitButton?.addEventListener("click", () => {
-  gameState.upgradeComputeRateLimit();
 });
 
 shopOpenButton?.addEventListener("click", () => {
