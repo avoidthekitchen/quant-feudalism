@@ -10,58 +10,134 @@
   </head>
   <body>
     <div id="app-shell">
-      <aside class="status-rail">
-        <section class="brand-block shop-only">
-          <p class="eyebrow">Post-Quantum Protectorate</p>
-          <h1>Quant Feudalism</h1>
-          <p class="deck">
-            Sterile corporate cyber-feudalism rendered as a combat procurement
-            ritual. Cycle your attack queues, burn finite Compute Credits, and
-            buy your way back into motion.
-          </p>
-        </section>
-
-        <section class="panel scoreboard-panel shop-only">
-          <div class="panel-head">
-            <span>Run Ledger</span>
-            <span>Top 3</span>
-          </div>
-          <div id="scoreboard-list" class="scoreboard-list"></div>
-        </section>
-
-        <section class="panel controls-panel arena-only">
-          <div class="panel-head">
-            <span>Combat Controls</span>
-          </div>
-          <ul class="control-list">
-            <li><span>Move</span><strong>W A S D</strong></li>
-            <li><span>Dash</span><strong>Space</strong></li>
-            <li><span>Statement</span><strong>Left Click</strong></li>
-            <li><span>Function</span><strong>Right Click</strong></li>
-            <li><span>Collapse</span><strong>Q</strong></li>
-            <li><span>Discard Cycle</span><strong>E</strong></li>
-            <li><span>Extract</span><strong>F on Gate</strong></li>
-          </ul>
-        </section>
-
-        <section class="panel log-panel">
-          <div class="panel-head">
-            <span>Operational Notes</span>
-          </div>
-          <p id="status-note" class="status-note"></p>
-          <p id="previous-note" class="report-note"></p>
-          <p id="older-note" class="report-note"></p>
-          <p id="report-note" class="report-note shop-only"></p>
-        </section>
-      </aside>
-
       <main class="stage">
         <div class="stage-frame">
-          <div class="stage-topline">
-            <span>Dual Sovereigns // Civic Runtime Division</span>
-            <span>Rate-Limited Human Asset</span>
-          </div>
           <div id="game-root" class="game-root">
+            <section id="splash-screen" class="splash-screen">
+              <div class="splash-copy">
+                <p class="eyebrow">Post-Quantum Protectorate</p>
+                <h1>Quant Feudalism</h1>
+                <p class="splash-tagline">Your body is a leased runtime.</p>
+                <p class="deck">
+                  Sterile corporate cyber-feudalism rendered as a combat procurement
+                  ritual. Cycle your attack queues, burn finite Compute Credits, and
+                  buy your way back into motion.
+                </p>
+                <div class="splash-actions">
+                  <button id="splash-continue-button" class="deploy-button">
+                    Continue Run
+                  </button>
+                </div>
+              </div>
+
+              <section class="panel scoreboard-panel">
+                <div class="panel-head">
+                  <span>Run Ledger</span>
+                  <span>Top 3</span>
+                </div>
+                <div id="scoreboard-list" class="scoreboard-list"></div>
+              </section>
+            </section>
+
+            <section id="game-hud" class="game-hud">
+              <button id="pause-button" class="pause-button" type="button" aria-label="Pause and controls">
+                ?
+              </button>
+
+              <div id="notice-stack" class="notice-stack">
+                <p id="status-note" class="status-note"></p>
+                <p id="previous-note" class="report-note"></p>
+                <p id="older-note" class="report-note"></p>
+                <p id="report-note" class="report-note shop-only"></p>
+              </div>
+
+              <section class="shop-hud shop-only">
+                <div class="shop-hud-row">
+                  <div class="shop-hud-stat">
+                    <span class="metric-kicker">Bug Bounty Credits</span>
+                    <strong id="credits-label">0</strong>
+                  </div>
+                  <div class="shop-hud-stat">
+                    <span class="metric-kicker">Compute Credits</span>
+                    <strong id="shop-allotment-label">0 / 0</strong>
+                  </div>
+                </div>
+                <div class="shop-hud-row">
+                  <div class="shop-hud-stat">
+                    <span class="metric-kicker">Rounds Finished</span>
+                    <strong id="rounds-label">0</strong>
+                  </div>
+                  <div class="shop-hud-stat">
+                    <span class="metric-kicker">Kills</span>
+                    <strong id="kills-label">0</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="integrity-hud">
+                <div class="metric-label-row">
+                  <span>Integrity</span>
+                  <strong id="integrity-label">0 / 0</strong>
+                </div>
+                <div class="meter meter-integrity">
+                  <div id="integrity-fill" class="meter-fill"></div>
+                </div>
+              </section>
+
+              <section class="arena-compute-hud arena-only">
+                <div class="compact-meter-row">
+                  <span>Rate Limit</span>
+                  <strong id="compute-label">0 / 0</strong>
+                  <div class="meter meter-compute">
+                    <div id="compute-fill" class="meter-fill"></div>
+                  </div>
+                </div>
+                <div class="compact-meter-row">
+                  <span>Credits</span>
+                  <strong id="allotment-label">0 / 0</strong>
+                  <div class="meter meter-allotment">
+                    <div id="allotment-fill" class="meter-fill"></div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="collapse-hud arena-only" aria-label="Collapse charges">
+                <span>Q</span>
+                <strong>Collapse</strong>
+                <div class="quantum-tuner-meter" aria-hidden="true">
+                  <span class="quantum-tuner-icon"></span>
+                  <span class="quantum-tuner-icon"></span>
+                  <span class="quantum-tuner-icon"></span>
+                </div>
+                <span id="quantum-tuners-label" class="collapse-count">1 / 3</span>
+              </section>
+            </section>
+
+            <section id="pause-menu" class="pause-menu">
+              <div class="panel pause-panel">
+                <div class="panel-head">
+                  <span id="pause-title">Paused</span>
+                  <span id="scene-chip">Shop</span>
+                </div>
+                <div class="pause-actions">
+                  <button id="resume-button" class="deploy-button" type="button">Resume</button>
+                  <button id="splash-return-button" class="deploy-button shop-only" type="button">
+                    Return to Splash
+                  </button>
+                </div>
+                <ul class="control-list">
+                  <li><span>Move</span><strong>W A S D</strong></li>
+                  <li><span>Dash</span><strong>Space</strong></li>
+                  <li><span>Statement</span><strong>Left Click</strong></li>
+                  <li><span>Function</span><strong>Right Click</strong></li>
+                  <li><span>Collapse</span><strong>Q</strong></li>
+                  <li><span>Discard Cycle</span><strong>E</strong></li>
+                  <li><span>Extract / Interact</span><strong>F</strong></li>
+                  <li><span>Pause</span><strong>Esc</strong></li>
+                </ul>
+              </div>
+            </section>
+
             <div id="arena-prompt" class="arena-prompt arena-only"></div>
 
             <section class="panel shop-access-panel shop-only">
@@ -100,7 +176,7 @@
 
               <aside id="shop-panel" class="panel shop-panel">
                 <div class="panel-head shop-panel-head">
-                  <span>Procurement Vestibule</span>
+                  <span>Compute Market</span>
                   <button
                     id="shop-close-button"
                     class="shop-close-button"
@@ -109,6 +185,13 @@
                   >
                     Close
                   </button>
+                </div>
+                <div class="compact-meter-row">
+                  <span>Compute Credits</span>
+                  <strong id="shop-market-allotment-label">0 / 0</strong>
+                  <div class="meter meter-allotment">
+                    <div id="shop-market-allotment-fill" class="meter-fill"></div>
+                  </div>
                 </div>
                 <p class="shop-copy">
                   Compute Credits are sold in rationed tranches. Statement and Function
@@ -154,6 +237,13 @@
                   >
                     Close
                   </button>
+                </div>
+                <div class="compact-meter-row">
+                  <span>Integrity</span>
+                  <strong id="workshop-integrity-label">0 / 0</strong>
+                  <div class="meter meter-integrity">
+                    <div id="workshop-integrity-fill" class="meter-fill"></div>
+                  </div>
                 </div>
                 <p class="shop-copy">
                   Structural repairs are handled outside the procurement queue. Restore
@@ -234,72 +324,6 @@
             </section>
           </div>
 
-          <section class="panel stat-panel">
-            <div class="panel-head">
-              <span>Provisioning Ledger</span>
-              <span id="scene-chip">Shop</span>
-            </div>
-
-            <div class="ledger-primary">
-              <div class="metric">
-                <div class="metric-label-row">
-                  <span>Compute Rate Limit</span>
-                  <strong id="compute-label">0 / 0</strong>
-                </div>
-                <div class="meter meter-compute">
-                  <div id="compute-fill" class="meter-fill"></div>
-                </div>
-              </div>
-
-              <div class="metric">
-                <div class="metric-label-row">
-                  <span>Compute Credits</span>
-                  <strong id="allotment-label">0 / 0</strong>
-                </div>
-                <div class="meter meter-allotment">
-                  <div id="allotment-fill" class="meter-fill"></div>
-                </div>
-              </div>
-
-              <div class="metric">
-                <div class="metric-label-row">
-                  <span>Integrity</span>
-                  <strong id="integrity-label">0 / 0</strong>
-                </div>
-                <div class="meter meter-integrity">
-                  <div id="integrity-fill" class="meter-fill"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="metric-grid">
-              <div class="shop-only">
-                <span class="metric-kicker">Bug Bounty Credits</span>
-                <strong id="credits-label">0</strong>
-              </div>
-              <div>
-                <span class="metric-kicker">Credit State</span>
-                <strong id="throttle-label">Nominal</strong>
-              </div>
-              <div>
-                <span class="metric-kicker">Kills</span>
-                <strong id="kills-label">0</strong>
-              </div>
-              <div>
-                <span class="metric-kicker">Quantum Tuners</span>
-                <div class="quantum-tuner-meter" aria-hidden="true">
-                  <span class="quantum-tuner-icon"></span>
-                  <span class="quantum-tuner-icon"></span>
-                  <span class="quantum-tuner-icon"></span>
-                </div>
-                <strong id="quantum-tuners-label">1 / 3</strong>
-              </div>
-              <div class="shop-only">
-                <span class="metric-kicker">Rounds Finished</span>
-                <strong id="rounds-label">0</strong>
-              </div>
-            </div>
-          </section>
         </div>
       </main>
     </div>

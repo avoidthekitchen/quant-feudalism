@@ -1024,16 +1024,18 @@ export class ArenaScene extends Phaser.Scene {
     const border = this.add.rectangle(0, 0, 560, 90, 0x061016, 0.66);
     border.setStrokeStyle(2, 0x60ffd3, 0.72);
 
-    const meleeLabel = this.add.text(-238, -32, "STATEMENT", {
+    const meleeLabel = this.add.text(-244, -36, "STATEMENT", {
       fontFamily: "Azeret Mono, monospace",
-      fontSize: "12px",
+      fontSize: "10px",
       color: "#dffcf3",
     });
-    const rangedLabel = this.add.text(92, -32, "FUNCTION", {
+    meleeLabel.setOrigin(0.5);
+    const rangedLabel = this.add.text(200, -36, "FUNCTION", {
       fontFamily: "Azeret Mono, monospace",
-      fontSize: "12px",
+      fontSize: "10px",
       color: "#dffcf3",
     });
+    rangedLabel.setOrigin(0.5);
     const phaseLabel = this.add.text(0, 30, "", {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "13px",
@@ -1054,8 +1056,8 @@ export class ArenaScene extends Phaser.Scene {
     });
     discardCount.setOrigin(0.5);
 
-    const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-238 + index * 28, -7));
-    const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(92 + index * 28, -7));
+    const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-244 + index * 28, -7));
+    const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(104 + index * 28, -7));
     const preparePile = this.createCardPile(54, this.scale.height - 60);
     const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 60);
     container.add([
@@ -1157,7 +1159,7 @@ export class ArenaScene extends Phaser.Scene {
     hud.phaseLabel.setText(
       preparing
         ? `PREPARING ${(this.computeCycle.preparingRemainingMs / 1000).toFixed(1)}s`
-        : "ACTIVE // E DISCARD",
+        : "",
     );
     hud.drawCount.setText(`DRAW ${this.computeCycle.drawPile.length}`);
     hud.discardCount.setText(`DISCARD ${this.computeCycle.discardPile.length}`);
@@ -2345,7 +2347,7 @@ export class ArenaScene extends Phaser.Scene {
       if (availability.reason === "no-charge") {
         gameState.setNotice("Collapse denied. No Quantum Tuner charges are banked.");
       } else {
-        gameState.setNotice("Collapse denied. Five seconds of temporal history are not available yet.");
+        gameState.setNotice("Collapse denied. No temporal history is available yet.");
       }
       return false;
     }
@@ -2414,6 +2416,7 @@ export class ArenaScene extends Phaser.Scene {
         .setScrollFactor(0)
         .setDepth(9_998);
     deathOverlay.setFillStyle(0x09070d, 0.62);
+    deathOverlay.setBlendMode(Phaser.BlendModes.NORMAL);
     deathOverlay.setAlpha(0);
 
     this.tweens.add({
