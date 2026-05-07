@@ -168,6 +168,7 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly meleeAttackLockDuration = 0.13;
   private static readonly rangedMovementPauseDuration = 0.32;
   private static readonly rangedAttackAnimationDuration = 0.28;
+  private static readonly cardPileBottomOffset = 120;
   private static readonly droneChaseSpeed = 132;
   private static readonly droneCloseSpeed = 68;
   private static readonly droneLungeMinRange = 72;
@@ -1058,8 +1059,8 @@ export class ArenaScene extends Phaser.Scene {
 
     const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-244 + index * 28, -7));
     const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(104 + index * 28, -7));
-    const preparePile = this.createCardPile(54, this.scale.height - 120);
-    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 120);
+    const preparePile = this.createCardPile(54, this.scale.height - ArenaScene.cardPileBottomOffset);
+    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - ArenaScene.cardPileBottomOffset);
     container.add([
       border,
       meleeLabel,
@@ -1151,8 +1152,8 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     hud.container.setPosition(this.scale.width / 2, this.scale.height - 62);
-    hud.preparePile.container.setPosition(54, this.scale.height - 120);
-    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - 120);
+    hud.preparePile.container.setPosition(54, this.scale.height - ArenaScene.cardPileBottomOffset);
+    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - ArenaScene.cardPileBottomOffset);
     const preparing = this.computeCycle.phase === "preparing";
     hud.border.setStrokeStyle(2, preparing ? 0xffcf66 : 0x60ffd3, preparing ? 0.84 : 0.72);
     hud.border.setFillStyle(preparing ? 0x1d1710 : 0x061016, 0.66);
