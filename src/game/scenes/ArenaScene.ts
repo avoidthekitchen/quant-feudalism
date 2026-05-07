@@ -157,7 +157,7 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly collapseVisualDurationMs = 1_000;
   private static readonly deathVisualDurationMs = 1_350;
   private static readonly combatSpeedMultiplier = 1.5;
-  private static readonly playerBaseSpeed = 235;
+  private static readonly playerBaseSpeed = 150;
   private static readonly playerBaseAcceleration = 760;
   private static readonly playerBaseDeceleration = 980;
   private static readonly playerBaseDashSpeed = 520;
@@ -1058,8 +1058,8 @@ export class ArenaScene extends Phaser.Scene {
 
     const meleeCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(-244 + index * 28, -7));
     const rangedCards = Array.from({ length: 7 }, (_, index) => this.createHudCard(104 + index * 28, -7));
-    const preparePile = this.createCardPile(54, this.scale.height - 60);
-    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 60);
+    const preparePile = this.createCardPile(54, this.scale.height - 120);
+    const shufflePile = this.createCardPile(this.scale.width - 54, this.scale.height - 120);
     container.add([
       border,
       meleeLabel,
@@ -1151,8 +1151,8 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     hud.container.setPosition(this.scale.width / 2, this.scale.height - 62);
-    hud.preparePile.container.setPosition(54, this.scale.height - 58);
-    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - 58);
+    hud.preparePile.container.setPosition(54, this.scale.height - 120);
+    hud.shufflePile.container.setPosition(this.scale.width - 54, this.scale.height - 120);
     const preparing = this.computeCycle.phase === "preparing";
     hud.border.setStrokeStyle(2, preparing ? 0xffcf66 : 0x60ffd3, preparing ? 0.84 : 0.72);
     hud.border.setFillStyle(preparing ? 0x1d1710 : 0x061016, 0.66);
