@@ -73,6 +73,11 @@
                 <button id="deploy-button" class="deploy-button shop-open-button">
                   Enter Arena
                 </button>
+                <div class="deck-access-summary" aria-label="Draft Deck Status">
+                  <span>Draft Deck</span>
+                  <strong id="deck-access-count-label">20 / 100</strong>
+                  <em id="deck-access-note">Deck ready for deployment.</em>
+                </div>
                 <button id="workshop-open-button" class="deploy-button shop-open-button workshop-open-button">
                   Enter Workshop
                 </button>
@@ -156,17 +161,33 @@
                   Collapse charges for Arena rewinds.
                 </p>
 
-                <div class="shop-actions">
-                  <button id="heal-button" class="shop-button">
-                    <span>Repair Integrity</span>
-                    <strong id="heal-label">+25 Integrity</strong>
-                    <em id="heal-cost-label">180 Compute Credits</em>
-                  </button>
-                  <button id="quantum-tuner-button" class="shop-button">
-                    <span>Quantum Tuner</span>
-                    <strong id="quantum-tuner-label">Banked Collapse Charge (1/3)</strong>
-                    <em id="quantum-tuner-cost-label">250 Compute Credits</em>
-                  </button>
+                <div class="workshop-grid">
+                  <div class="shop-actions workshop-service-actions">
+                    <button id="heal-button" class="shop-button">
+                      <span>Repair Integrity</span>
+                      <strong id="heal-label">+25 Integrity</strong>
+                      <em id="heal-cost-label">180 Compute Credits</em>
+                    </button>
+                    <button id="quantum-tuner-button" class="shop-button">
+                      <span>Quantum Tuner</span>
+                      <strong id="quantum-tuner-label">Banked Collapse Charge (1/3)</strong>
+                      <em id="quantum-tuner-cost-label">250 Compute Credits</em>
+                    </button>
+                  </div>
+
+                  <section class="deck-builder" aria-label="Draft Deck Builder">
+                    <div class="deck-builder-head">
+                      <span>Draft Deck</span>
+                      <strong id="deck-count-label">20 / 100</strong>
+                    </div>
+                    <p id="deck-validation-note" class="deck-validation-note">
+                      Deck ready for deployment.
+                    </p>
+                    <div id="deck-builder-list" class="deck-builder-list"></div>
+                    <button id="deck-reset-button" class="deck-reset-button" type="button">
+                      Reset to Starter Deck
+                    </button>
+                  </section>
                 </div>
               </aside>
             </section>

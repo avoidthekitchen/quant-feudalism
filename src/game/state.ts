@@ -1,6 +1,18 @@
 import type { ArenaSnapshot } from "./quantum-tuner";
 
 import { getScaledShopBundleCost, SHOP_BUNDLES } from "./constants.ts";
+import {
+  createStarterDeck,
+  decrementDraftCard,
+  getDeckBuilderRows,
+  incrementDraftCard,
+  normalizeDeck,
+  resetToStarterDeck,
+  validateDraftDeck,
+  type DeckBuilderRow,
+  type DeckValidation,
+  type DraftDeck,
+} from "./deck.ts";
 
 export type SceneMode = "shop" | "arena";
 export type ArenaOutcome = "retreated" | "cleared" | "decommissioned";
@@ -78,6 +90,7 @@ export interface PersistedGameState {
   runHistory: RunHistoryEntry[];
   arenaEntryAllotment: number;
   savedArenaResume: SavedArenaResume | null;
+  draftDeck?: DraftDeck;
 }
 
 const PERSISTENCE_VERSION = 1;
@@ -131,6 +144,7 @@ export class RunState extends EventTarget {
 
   private arenaEntryAllotment = this.allotmentCurrent;
   private savedArenaResume: SavedArenaResume | null = null;
+  private draftDeck: DraftDeck = createStarterDeck();
 
   emitChange(): void {
     this.dispatchEvent(new CustomEvent("statechange"));
@@ -312,9 +326,16 @@ export class RunState extends EventTarget {
     return true;
   }
 
-  beginArena(): void {
+  beginArena(): boolean {
     if (!this.runActive || this.sceneMode !== "shop") {
-      return;
+      return false;
+    }
+
+    const validation = this.getDraftDeckValidation();
+    if (!validation.valid) {
+      this.notice = validation.message;
+      this.emitChange();
+      return false;
     }
 
     this.sceneMode = "arena";
@@ -326,6 +347,7 @@ export class RunState extends EventTarget {
     this.arenaPrompt = "";
     this.notice = "Deployment accepted. Exit through the northern gate before your Compute Credits collapse.";
     this.emitChange();
+    return true;
   }
 
   restoreForShop(note?: string): void {
@@ -366,6 +388,24 @@ export class RunState extends EventTarget {
     this.allotmentCurrent += refunded;
     this.emitChange();
     return refunded;
+  }
+
+  restoreComputeResources(amount: number): { computeRateLimit: number; computeCredits: number } {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    if (safeAmount <= 0) {
+      return { computeRateLimit: 0, computeCredits: 0 };
+    }
+
+    const computeRateLimit = Math.min(safeAmount, this.computeMax - this.computeCurrent);
+    const computeCredits = Math.min(safeAmount, this.allotmentMax - this.allotmentCurrent);
+    if (computeRateLimit <= 0 && computeCredits <= 0) {
+      return { computeRateLimit: 0, computeCredits: 0 };
+    }
+
+    this.computeCurrent += computeRateLimit;
+    this.allotmentCurrent += computeCredits;
+    this.emitChange();
+    return { computeRateLimit, computeCredits };
   }
 
   applyDamage(amount: number): boolean {
@@ -517,6 +557,63 @@ export class RunState extends EventTarget {
     return this.savedArenaResume ? structuredClone(this.savedArenaResume) : null;
   }
 
+  getDraftDeck(): DraftDeck {
+    return structuredClone(this.draftDeck);
+  }
+
+  tryGetDeployableDeck(): DraftDeck | null {
+    const validation = this.getDraftDeckValidation();
+    if (!validation.valid) {
+      return null;
+    }
+
+    return this.getDraftDeck();
+  }
+
+  getDraftDeckValidation(): DeckValidation {
+    return validateDraftDeck(this.draftDeck);
+  }
+
+  hasDraftDeckEdits(): boolean {
+    return !draftDecksEqual(this.draftDeck, createStarterDeck());
+  }
+
+  getDeckBuilderRows(): DeckBuilderRow[] {
+    return getDeckBuilderRows(this.draftDeck);
+  }
+
+  incrementDraftCard(cardId: string, amount = 1): boolean {
+    if (!this.canUseShopActions()) {
+      return false;
+    }
+
+    const next = incrementDraftCard(this.draftDeck, cardId, amount);
+    this.draftDeck = next;
+    this.emitChange();
+    return true;
+  }
+
+  decrementDraftCard(cardId: string, amount = 1): boolean {
+    if (!this.canUseShopActions()) {
+      return false;
+    }
+
+    this.draftDeck = decrementDraftCard(this.draftDeck, cardId, amount);
+    this.emitChange();
+    return true;
+  }
+
+  resetDraftDeckToStarter(): boolean {
+    if (!this.canUseShopActions()) {
+      return false;
+    }
+
+    this.draftDeck = resetToStarterDeck(this.draftDeck);
+    this.notice = "Draft Deck reset to Starter Deck: 15 Slash, 5 Bolt.";
+    this.emitChange();
+    return true;
+  }
+
   saveArenaResume(resume: SavedArenaResume): void {
     this.savedArenaResume = structuredClone(resume);
   }
@@ -552,6 +649,7 @@ export class RunState extends EventTarget {
       runHistory: structuredClone(this.runHistory),
       arenaEntryAllotment: this.arenaEntryAllotment,
       savedArenaResume: this.savedArenaResume ? structuredClone(this.savedArenaResume) : null,
+      draftDeck: structuredClone(this.draftDeck),
     };
   }
 
@@ -589,6 +687,7 @@ export class RunState extends EventTarget {
     this.savedArenaResume = isSavedArenaResume(raw.savedArenaResume)
       ? structuredClone(raw.savedArenaResume)
       : null;
+    this.draftDeck = isDraftDeck(raw.draftDeck) ? normalizeDeck(raw.draftDeck) : createStarterDeck();
 
     if (this.sceneMode === "arena") {
       if (this.savedArenaResume) {
@@ -731,6 +830,7 @@ export class RunState extends EventTarget {
     };
     this.arenaEntryAllotment = this.allotmentCurrent;
     this.savedArenaResume = null;
+    this.draftDeck = createStarterDeck();
   }
 
   private canUseShopActions(): boolean {
@@ -758,6 +858,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function draftDecksEqual(left: DraftDeck, right: DraftDeck): boolean {
+  const normalizedLeft = normalizeDeck(left);
+  const normalizedRight = normalizeDeck(right);
+  const cardIds = new Set([...Object.keys(normalizedLeft), ...Object.keys(normalizedRight)]);
+
+  for (const cardId of cardIds) {
+    if ((normalizedLeft[cardId] ?? 0) !== (normalizedRight[cardId] ?? 0)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function isSnapshotVector(value: unknown): value is { x: number; y: number } {
@@ -927,6 +1041,15 @@ function isSavedArenaResume(value: unknown): value is SavedArenaResume {
     isFiniteNumber(value.timelineTimeMs) &&
     (value.arenaElapsedTimeMs === undefined || isFiniteNumber(value.arenaElapsedTimeMs)) &&
     isArenaSnapshotRecord(value.snapshot)
+  );
+}
+
+function isDraftDeck(value: unknown): value is DraftDeck {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([id, count]) => typeof id === "string" && isFiniteNumber(count),
+    )
   );
 }
 
