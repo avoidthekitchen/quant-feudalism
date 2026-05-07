@@ -81,7 +81,7 @@ The **Special** **Statement** card that trades Slash's damage efficiency for add
 _Avoid_: Special Statement
 
 **Refund**:
-The **Special** **Function** card that restores limited compute resources without dealing damage.
+The **Special** **Function** card that discounts upcoming attacks without dealing damage.
 _Avoid_: Special Function
 
 **Bug**:
@@ -136,7 +136,7 @@ _Avoid_: End turn
 - Missing **Card IDs** count toward displayed deck size but block arena deployment and are not playable.
 - Each arena deployment begins with a freshly shuffled copy of the player's current **Deck**.
 - The **Deck Builder** does not mutate an in-progress arena deployment.
-- Resuming an arena deployment restores the saved draw pile, discard pile, and **Attack Queues** from authoritative arena state rather than rebuilding them from the current **Draft Deck**.
+- Reloading mid-arena abandons the in-progress deployment and returns to the pre-arena shop state.
 - **Collapse** restores the deck state captured in the selected arena snapshot.
 - Each arena deployment starts in an **Active Window**.
 - **Attack Cards** are named card designs within a **Card Type** lane.
@@ -148,9 +148,11 @@ _Avoid_: End turn
 - **Trim** costs the same as **Slash**, deals half of **Slash** damage, and draws one additional **Attack Card** after its attack resolves.
 - **Trim** draws exactly one **Attack Card** and can draw even when the **Attack Queues** are already at the **Queue Limit**.
 - **Refund** is played from the **Function** **Attack Queue** but resolves as an immediate self-effect rather than a projectile.
-- **Refund** costs no compute, deals no damage, and restores Compute Rate Limit and Compute Credits up to their normal caps.
-- **Refund** feedback reports the actual Compute Rate Limit and Compute Credits restored after caps are applied.
-- **Refund** can be played when both compute pools are already full, restoring zero and still moving to discard.
+- **Refund** costs no compute, deals no damage, and arms a flat Compute discount for the next three non-Refund attacks during the current **Active Window**.
+- **Refund** discounts those attacks by 20 Compute each, but never below a 1 Compute cost.
+- **Refund** discounts both Compute Rate Limit and Compute Credits and the remaining discount count is lost at **Cycle End**.
+- **Refund** can be played when both compute pools are already full, still moving to discard and arming the discount.
+- **Refund** displays an in-world fiery player aura with one visible charge per remaining discounted attack.
 - A queued **Refund** can keep an **Active Window** from ending automatically while its **Function** lane cooldown clears.
 - An **Attack Card** belongs to exactly one **Attack Queue** while it is available.
 - **Attack Queues** are ordered lanes, but unaffordable cards do not block later affordable cards in the same lane.
@@ -175,7 +177,7 @@ _Avoid_: End turn
 - Automatic **Cycle End** scans each **Attack Queue** for any currently affordable or cooldown-waiting **Attack Card**, not only the front card.
 - Shuffling is a visible part of dealing new **Attack Cards**, not an additional penalty after the **Preparing Window**.
 - The **Active Window** can begin while **Attack Cards** are still visibly dealing into the **Attack Queues**.
-- Current deck state is part of authoritative arena state for reloads and Collapse.
+- Current deck state is part of authoritative arena state for Collapse.
 
 ## Example Dialogue
 

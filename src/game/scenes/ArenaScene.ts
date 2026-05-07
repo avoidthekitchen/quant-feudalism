@@ -11,17 +11,20 @@ import {
   RANGED_PROJECTILE_SPEED,
   RANGED_SPLASH_DAMAGE,
   type CombatAbilityAction,
-  formatRefundFeedback,
 } from "../combat";
 import {
+  activateRefundDiscount,
   advanceComputeCycle,
   createArenaComputeCycle,
   createStarterComputeCycle,
   drawBonusAttackCard,
   endActiveWindow,
   getAttackCardDisplayName,
+  getDiscountedAttackCost,
   isAttackCardAffordable,
   playAttackCard,
+  REFUND_DISCOUNT_AMOUNT,
+  REFUND_DISCOUNT_ATTACKS,
   shouldEndActiveWindow,
   startActiveWindow,
   type AttackCard,
@@ -55,7 +58,7 @@ import {
    type ProjectileArenaSnapshot,
    type TimedArenaSnapshot,
  } from "../quantum-tuner";
-import { gameState, type SavedArenaResume } from "../state";
+import { gameState, type ArenaOutcome } from "../state";
 
 type AbilityAction = CombatAbilityAction;
 
@@ -142,9 +145,17 @@ type GhostReplay = {
   durationMs: number;
 };
 
+type RefundAuraVisual = {
+  container: Phaser.GameObjects.Container;
+  glow: Phaser.GameObjects.Arc;
+  rings: Phaser.GameObjects.Arc[];
+  flames: Phaser.GameObjects.Arc[];
+  previousCharges: number;
+};
+
 export class ArenaScene extends Phaser.Scene {
   private static readonly collapseVisualDurationMs = 1_000;
-  private static readonly resumeSaveIntervalMs = 600;
+  private static readonly deathVisualDurationMs = 1_350;
   private static readonly combatSpeedMultiplier = 1.5;
   private static readonly playerBaseSpeed = 235;
   private static readonly playerBaseAcceleration = 760;
@@ -240,29 +251,22 @@ export class ArenaScene extends Phaser.Scene {
   private snapshotAccumulatorMs = 0;
   private snapshotHistory: TimedArenaSnapshot[] = [];
   private collapsePlayback?: CollapsePlayback;
+  private deathSequenceActive = false;
   private ghostReplay?: GhostReplay;
   private quantumTrailGraphics?: Phaser.GameObjects.Graphics;
   private quantumTargetMarker?: Phaser.GameObjects.Arc;
   private collapseOverlay?: Phaser.GameObjects.Rectangle;
+  private refundAura?: RefundAuraVisual;
   private preparingBorderBars: Phaser.GameObjects.Rectangle[] = [];
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
-  private resumeSaveAccumulatorMs = 0;
-  private readonly handlePagePersist = (): void => {
-    this.saveResumeCheckpoint();
-  };
-  private readonly handleVisibilityPersist = (): void => {
-    if (document.visibilityState === "hidden") {
-      this.saveResumeCheckpoint();
-    }
-  };
 
   constructor() {
     super(SCENES.arena);
   }
 
-  create(data?: { resume?: SavedArenaResume }): void {
+  create(): void {
     playBackgroundMusic(this, "arena");
 
     this.drones = [];
@@ -286,8 +290,8 @@ export class ArenaScene extends Phaser.Scene {
       melee: ABILITY_COOLDOWNS_MS.melee,
       ranged: ABILITY_COOLDOWNS_MS.ranged,
     };
-    const currentDraftDeck = data?.resume ? {} : gameState.tryGetDeployableDeck();
-    if (!data?.resume && !currentDraftDeck) {
+    const currentDraftDeck = gameState.tryGetDeployableDeck();
+    if (!currentDraftDeck) {
       gameState.restoreForShop(gameState.getDraftDeckValidation().message);
       this.scene.start(SCENES.shop);
       return;
@@ -295,17 +299,15 @@ export class ArenaScene extends Phaser.Scene {
 
     this.computeCycle = createArenaComputeCycle({
       currentDraftDeck,
-      resumeCycle: data?.resume?.snapshot.computeCycle,
       seed: this.timelineTimeMs + gameState.runId,
       computeRefill: gameState.computeMax,
     });
     gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
     gameState.emitChange();
     this.transientVisuals.clear();
-    this.timelineTimeMs = data?.resume?.timelineTimeMs ?? 0;
-    this.arenaElapsedTimeMs = data?.resume?.arenaElapsedTimeMs ?? 0;
+    this.timelineTimeMs = 0;
+    this.arenaElapsedTimeMs = 0;
     this.snapshotAccumulatorMs = 0;
-    this.resumeSaveAccumulatorMs = 0;
     this.snapshotHistory = [];
     this.collapsePlayback = undefined;
     this.ghostReplay = undefined;
@@ -411,59 +413,30 @@ export class ArenaScene extends Phaser.Scene {
     this.createCooldownIndicators();
     this.createAttackQueueHud();
 
-    if (data?.resume) {
-      try {
-        this.restoreArenaSnapshot(data.resume.snapshot, {
-          emitRunState: false,
-          bumpHudTimeline: false,
-        });
-      } catch (error) {
-        console.warn("Arena resume failed; returning to shop.", error);
-        gameState.clearArenaResume();
-        gameState.restoreForShop(
-          "Arena restore failed. Returned to procurement chamber with run data preserved.",
-        );
-        this.scene.start(SCENES.shop);
-        return;
-      }
-    }
-
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
     this.updateAttackQueueHud();
-    if (!data?.resume) {
-      this.animateDeal();
-    }
+    this.animateDeal();
     this.snapshotHistory = recordArenaSnapshot([], this.captureArenaSnapshot(), this.timelineTimeMs);
     gameState.setExtractionReady(this.arenaCleared);
-    this.saveResumeCheckpoint();
-
-    if (typeof window !== "undefined") {
-      window.addEventListener("pagehide", this.handlePagePersist);
-    }
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", this.handleVisibilityPersist);
-    }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.saveResumeCheckpoint();
       this.input.off("pointerdown", this.handlePointerDown, this);
       this.clearTransientVisuals();
+      this.destroyRefundAura();
       this.destroyCooldownIndicators();
       this.destroyAttackQueueHud();
       this.destroyAllProjectiles();
       this.destroyAllDrones();
-      if (typeof window !== "undefined") {
-        window.removeEventListener("pagehide", this.handlePagePersist);
-      }
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", this.handleVisibilityPersist);
-      }
     });
   }
 
   update(_time: number, delta: number): void {
+    if (this.deathSequenceActive) {
+      return;
+    }
+
     if (this.collapsePlayback) {
       this.updateCollapsePlayback(delta);
       this.updateQuantumTrail();
@@ -474,7 +447,6 @@ export class ArenaScene extends Phaser.Scene {
     this.timelineTimeMs += delta;
     this.arenaElapsedTimeMs += delta;
     this.snapshotAccumulatorMs += delta;
-    this.resumeSaveAccumulatorMs += delta;
     this.advanceAbilityCooldowns(delta);
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
@@ -801,6 +773,9 @@ export class ArenaScene extends Phaser.Scene {
     this.playerShadow.setPosition(this.player.x, this.player.y + 18);
     this.playerShadow.setDepth(this.player.y - 12);
     this.player.setDepth(this.player.y + 6);
+    if (this.refundAura) {
+      this.refundAura.container.setDepth(this.player.y + 5);
+    }
   }
 
   private updatePlayerSprite(
@@ -1253,6 +1228,7 @@ export class ArenaScene extends Phaser.Scene {
     return isAttackCardAffordable(card, {
       computeCurrent: gameState.computeCurrent,
       allotmentCurrent: gameState.allotmentCurrent,
+      refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
     });
   }
 
@@ -1538,6 +1514,7 @@ export class ArenaScene extends Phaser.Scene {
     const played = playAttackCard(this.computeCycle, "melee", {
       computeCurrent: gameState.computeCurrent,
       allotmentCurrent: gameState.allotmentCurrent,
+      refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
     });
     if (!played.played || !played.card) {
       this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
@@ -1545,7 +1522,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     const cardDefinition = getAttackCardDefinition(played.card.id);
-    const cardCost = cardDefinition?.cost ?? attempt.cost;
+    const cardCost = getDiscountedAttackCost(played.card, this.computeCycle.refundDiscountAttacksRemaining);
     if (!gameState.canUseAbility(cardCost)) {
       this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
       return;
@@ -1656,6 +1633,7 @@ export class ArenaScene extends Phaser.Scene {
     const played = playAttackCard(this.computeCycle, "ranged", {
       computeCurrent: gameState.computeCurrent,
       allotmentCurrent: gameState.allotmentCurrent,
+      refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
     });
     if (!played.played || !played.card) {
       this.setAttackCardRejectionNotice("Function", played.rejectionReason);
@@ -1663,7 +1641,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     const cardDefinition = getAttackCardDefinition(played.card.id);
-    const cardCost = cardDefinition?.cost ?? attempt.cost;
+    const cardCost = getDiscountedAttackCost(played.card, this.computeCycle.refundDiscountAttacksRemaining);
     if (!gameState.canUseAbility(cardCost)) {
       this.setAttackCardRejectionNotice("Function", played.rejectionReason);
       return;
@@ -1678,9 +1656,11 @@ export class ArenaScene extends Phaser.Scene {
     this.computeCycle = played.state;
     this.completeAbilityAttempt("ranged", attempt, cardDefinition?.cooldownMs);
     if (played.card.id === "refund") {
-      const restored = gameState.restoreComputeResources(40);
-      this.createRefundVisual(restored.computeRateLimit, restored.computeCredits);
-      gameState.setNotice(formatRefundFeedback(restored));
+      this.computeCycle = activateRefundDiscount(this.computeCycle);
+      this.createRefundVisual();
+      gameState.setNotice(
+        `Refund armed. Next ${REFUND_DISCOUNT_ATTACKS} attacks this Active Window cost -${REFUND_DISCOUNT_AMOUNT} Compute.`,
+      );
       this.updateAttackQueueHud();
       return;
     }
@@ -1715,7 +1695,7 @@ export class ArenaScene extends Phaser.Scene {
 
   }
 
-  private createRefundVisual(computeRateLimit: number, computeCredits: number): void {
+  private createRefundVisual(): void {
     const pulse = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 16, 34, 0x60ffd3, 0.08));
     pulse.setStrokeStyle(2, 0x60ffd3, 0.7);
     pulse.setDepth(this.player.y + 34);
@@ -1723,7 +1703,7 @@ export class ArenaScene extends Phaser.Scene {
     const label = this.trackTransientVisual(this.add.text(
       this.player.x,
       this.player.y - 62,
-      `+${computeRateLimit} RL  +${computeCredits} CC`,
+      `-${REFUND_DISCOUNT_AMOUNT} x${REFUND_DISCOUNT_ATTACKS}`,
       {
         fontFamily: "Azeret Mono, monospace",
         fontSize: "12px",
@@ -1909,6 +1889,7 @@ export class ArenaScene extends Phaser.Scene {
     if (!shouldEndActiveWindow(this.computeCycle, {
       computeCurrent: gameState.computeCurrent,
       allotmentCurrent: gameState.allotmentCurrent,
+      refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
       meleeCost: gameState.meleeCost,
       rangedCost: gameState.rangedCost,
       cooldowns: {
@@ -2038,12 +2019,14 @@ export class ArenaScene extends Phaser.Scene {
         this.cameras.main.shake(130, 0.0035);
 
         if (died) {
-          gameState.finishArena(
+          if (this.tryCollapse()) {
+            return true;
+          }
+
+          this.beginDeathSequence(
             "decommissioned",
             "Integrity collapse. The corporations reclaimed your body from the arena floor.",
-            this.arenaElapsedTimeMs,
           );
-          this.scene.start(SCENES.shop);
           return true;
         }
       }
@@ -2159,6 +2142,7 @@ export class ArenaScene extends Phaser.Scene {
   private updateVisuals(): void {
     const severity = gameState.getVisionBlurStrength();
     this.updatePreparingBorder();
+    this.updateRefundAura();
     if (this.blurFilter) {
       if (severity <= 0) {
         this.blurFilter.strength = 0;
@@ -2178,6 +2162,126 @@ export class ArenaScene extends Phaser.Scene {
         this.arenaCleared ? "Open" : "Conditional"
       }`,
     );
+  }
+
+  private updateRefundAura(): void {
+    const charges = Phaser.Math.Clamp(this.computeCycle.refundDiscountAttacksRemaining, 0, REFUND_DISCOUNT_ATTACKS);
+    const aura = this.refundAura ?? this.createRefundAura();
+    this.refundAura = aura;
+
+    if (charges < aura.previousCharges) {
+      this.createRefundAuraFadePulse(aura.previousCharges);
+    } else if (charges > aura.previousCharges) {
+      this.createRefundAuraIgnitionPulse();
+    }
+
+    aura.previousCharges = charges;
+    aura.container.setVisible(charges > 0);
+    if (charges <= 0) {
+      return;
+    }
+
+    const time = this.timelineTimeMs / 1000;
+    const intensity = charges / REFUND_DISCOUNT_ATTACKS;
+    aura.container.setPosition(this.player.x, this.player.y - 7);
+    aura.container.setDepth(this.player.y + 5);
+    aura.container.setAlpha(0.72 + intensity * 0.28);
+    aura.glow.setRadius(28 + intensity * 14 + Math.sin(time * 6.5) * 2);
+    aura.glow.setAlpha(0.22 + intensity * 0.24);
+
+    aura.rings.forEach((ring, index) => {
+      const ringLive = index < charges;
+      ring.setVisible(ringLive);
+      if (!ringLive) {
+        return;
+      }
+
+      const wobble = Math.sin(time * 5.2 + index * 1.7);
+      ring.setRadius(24 + index * 7 + wobble * 2.4);
+      ring.setAlpha(0.34 + intensity * 0.28);
+    });
+
+    aura.flames.forEach((flame, index) => {
+      const flameLive = index < charges;
+      flame.setVisible(flameLive);
+      if (!flameLive) {
+        return;
+      }
+
+      const angle = time * 2.4 + index * ((Math.PI * 2) / REFUND_DISCOUNT_ATTACKS);
+      const bob = Math.sin(time * 7 + index);
+      flame.setPosition(Math.cos(angle) * 28, -12 + Math.sin(angle) * 10 + bob * 4);
+      flame.setScale(1.08 + intensity * 0.58 + bob * 0.12);
+      flame.setAlpha(0.7 + intensity * 0.3);
+    });
+  }
+
+  private createRefundAura(): RefundAuraVisual {
+    const container = this.add.container(this.player.x, this.player.y - 7);
+    container.setDepth(this.player.y + 5);
+    container.setVisible(false);
+
+    const glow = this.add.circle(0, -3, 34, 0xff6a2a, 0.32);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+
+    const rings = Array.from({ length: REFUND_DISCOUNT_ATTACKS }, (_, index) => {
+      const ring = this.add.circle(0, -3, 24 + index * 7, 0xff6a2a, 0);
+      ring.setStrokeStyle(3, index === 0 ? 0xfff1a1 : 0xff7b2f, 0.62);
+      ring.setBlendMode(Phaser.BlendModes.ADD);
+      return ring;
+    });
+
+    const flames = Array.from({ length: REFUND_DISCOUNT_ATTACKS }, (_, index) => {
+      const flame = this.add.circle(0, 0, 8 + index * 2, index === 0 ? 0xfff1a1 : 0xff6a2a, 0.92);
+      flame.setBlendMode(Phaser.BlendModes.ADD);
+      return flame;
+    });
+
+    container.add([glow, ...rings, ...flames]);
+    return {
+      container,
+      glow,
+      rings,
+      flames,
+      previousCharges: 0,
+    };
+  }
+
+  private createRefundAuraIgnitionPulse(): void {
+    const pulse = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 7, 28, 0xff6a2a, 0.24));
+    pulse.setStrokeStyle(4, 0xfff1a1, 0.9);
+    pulse.setDepth(this.player.y + 8);
+    pulse.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      scale: { from: 0.9, to: 2.05 },
+      duration: 440,
+      ease: "Sine.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
+  }
+
+  private createRefundAuraFadePulse(previousCharges: number): void {
+    const pulse = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 7, 22 + previousCharges * 8, 0xff6a2a, 0.12));
+    pulse.setStrokeStyle(4, 0xff7b2f, 0.78);
+    pulse.setDepth(this.player.y + 8);
+    pulse.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      scale: { from: 1, to: 1.72 },
+      duration: 340,
+      ease: "Cubic.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
+  }
+
+  private destroyRefundAura(): void {
+    this.refundAura?.container.destroy();
+    this.refundAura = undefined;
   }
 
   private updateExtractionPrompt(): void {
@@ -2277,6 +2381,70 @@ export class ArenaScene extends Phaser.Scene {
     this.clearTransientVisuals();
     this.cameras.main.shake(140, 0.0022);
     gameState.setNotice("Quantum Tuner engaged. Collapsing the discarded branch.");
+  }
+
+  private beginDeathSequence(status: ArenaOutcome, note: string): void {
+    if (this.deathSequenceActive) {
+      return;
+    }
+
+    this.deathSequenceActive = true;
+    gameState.finishArena(status, note, this.arenaElapsedTimeMs);
+    this.clearTransientVisuals();
+    this.destroyCooldownIndicators();
+
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body;
+    playerBody.stop();
+    playerBody.enable = false;
+    this.player.stop();
+    this.player.setTint(0xff4fa4);
+    this.playerShadow.setAlpha(0.25);
+
+    const collapseRing = this.add.circle(this.player.x, this.player.y, 18, 0xff4fa4, 0);
+    collapseRing.setStrokeStyle(4, 0xff4fa4, 0.95);
+    collapseRing.setDepth(this.player.depth + 3);
+    this.cameras.main.stopFollow();
+    this.cameras.main.shake(260, 0.006);
+    this.cameras.main.zoomTo(1.08, 420, "Sine.easeOut");
+
+    const deathOverlay =
+      this.collapseOverlay ??
+      this.add
+        .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x09070d, 0)
+        .setScrollFactor(0)
+        .setDepth(9_998);
+    deathOverlay.setFillStyle(0x09070d, 0.62);
+    deathOverlay.setAlpha(0);
+
+    this.tweens.add({
+      targets: collapseRing,
+      radius: 132,
+      alpha: 0,
+      duration: 720,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        collapseRing.destroy();
+      },
+    });
+
+    this.tweens.add({
+      targets: [this.player, this.playerShadow],
+      alpha: 0,
+      scale: 0.58,
+      angle: "+=20",
+      duration: 860,
+      ease: "Cubic.easeIn",
+    });
+
+    this.tweens.add({
+      targets: deathOverlay,
+      alpha: { from: 0, to: 0.86 },
+      duration: ArenaScene.deathVisualDurationMs,
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        this.scene.start(SCENES.shop);
+      },
+    });
   }
 
   private updateCollapsePlayback(deltaMs: number): void {
@@ -2575,11 +2743,6 @@ export class ArenaScene extends Phaser.Scene {
       this.captureArenaSnapshot(),
       this.timelineTimeMs,
     );
-
-    if (this.resumeSaveAccumulatorMs >= ArenaScene.resumeSaveIntervalMs) {
-      this.resumeSaveAccumulatorMs = 0;
-      this.saveResumeCheckpoint();
-    }
   }
 
   private captureArenaSnapshot(): ArenaSnapshot {
@@ -2811,19 +2974,6 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     return drone;
-  }
-
-  private saveResumeCheckpoint(): void {
-    if (gameState.sceneMode !== "arena") {
-      return;
-    }
-
-    gameState.saveArenaResume({
-      timelineTimeMs: this.timelineTimeMs,
-      arenaElapsedTimeMs: this.arenaElapsedTimeMs,
-      snapshot: this.captureArenaSnapshot(),
-    });
-    gameState.persistToStorage();
   }
 
   private clampArenaX(value: number): number {

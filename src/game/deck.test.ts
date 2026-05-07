@@ -25,7 +25,7 @@ test("Deck Builder rows present card rules and behavior summaries", () => {
   );
   assert.equal(
     refund?.details,
-    "Function // Special // 0 cost // 0 dmg // 1000ms cooldown // Restores capped Compute Rate Limit and Compute Credits.",
+    "Function // Special // 0 cost // 0 dmg // 1000ms cooldown // Arms a flat Compute discount for the next three attacks this Active Window.",
   );
 });
 

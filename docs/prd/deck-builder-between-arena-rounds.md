@@ -13,7 +13,7 @@ Add a between-deployment **Deck Builder** to Quant Feudalism so players can tune
 - Add named card definitions for Slash, Bolt, Trim, and Refund.
 - Update arena card queues to display named cards and support first-affordable-card play within each Card Type lane.
 - Persist the run's Draft Deck across shop navigation and reloads.
-- Preserve existing authoritative arena resume and Collapse behavior.
+- Preserve existing authoritative Collapse behavior; mid-arena reloads return to the pre-arena shop state.
 
 ## Out Of Scope
 
@@ -41,7 +41,7 @@ Add a between-deployment **Deck Builder** to Quant Feudalism so players can tune
 | `slash` | Slash | Statement | Basic | Unlimited | 18 | 350ms | 24 | Existing close-range Statement attack. Keeps current reach, stun, and animation lock. |
 | `bolt` | Bolt | Function | Basic | Unlimited | 40 | 820ms | 31 | Existing projectile Function attack. Keeps current movement pause, projectile, pull splash, and Compute Credit siphon. |
 | `trim` | Trim | Statement | Special | 10 | 18 | 350ms | 12 | Same input, reach, stun, and animation lock as Slash. Draws exactly one additional Attack Card after its attack resolves. |
-| `refund` | Refund | Function | Special | 10 | 0 | 1000ms | 0 | Immediate self-effect. Restores up to 40 Compute Rate Limit and up to 40 Compute Credits, each capped by its normal maximum. |
+| `refund` | Refund | Function | Special | 10 | 0 | 1000ms | 0 | Immediate self-effect. Arms a 20 Compute discount for the next three non-Refund attacks this Active Window, with discounted costs floored at 1. |
 
 All four cards are available from the start of every run in this version.
 
@@ -152,19 +152,17 @@ Refund resolves as an immediate self-effect:
 
 1. Confirm Function lane is playable and the player is not action-locked.
 2. Move Refund from the Function Attack Queue to discard.
-3. Restore up to 40 Compute Rate Limit, capped by `computeMax`.
-4. Restore up to 40 Compute Credits, capped by `allotmentMax`.
+3. Arm three attack discounts for the current Active Window.
+4. Each discounted non-Refund attack costs 20 less Compute, but never less than 1 Compute.
 5. Start a 1000ms Function cooldown.
-6. Show feedback with actual restored amounts after caps.
+6. Show feedback with the armed discount count and amount.
 7. Run automatic Cycle End checks.
 
-Refund is always resource-affordable because it costs 0. It can be played when both compute pools are full; in that case it restores 0, still moves to discard, and still starts Function cooldown.
+Refund is always resource-affordable because it costs 0. It can be played when both compute pools are full; in that case it still moves to discard, arms the discount, and starts Function cooldown. Any remaining Refund discount count is lost at Cycle End.
 
 Example feedback:
 
-- `Refund restored +40 Rate Limit, +40 Compute Credits.`
-- `Refund restored +12 Rate Limit, +40 Compute Credits.`
-- `Refund found both compute pools full.`
+- `Refund armed. Next 3 attacks this Active Window cost -20 Compute.`
 
 ## Automatic Cycle End
 
@@ -180,7 +178,7 @@ Automatic Cycle End must scan the entire Statement and Function queues.
 - The run's Draft Deck persists while the player is in the shop and across reloads.
 - Deck Builder edits apply to the next fresh arena deployment.
 - Deck Builder edits do not mutate an in-progress arena deployment.
-- If a saved arena resume exists, resuming restores the saved draw pile, discard pile, Attack Queues, cooldowns, resources, and authoritative arena state.
+- Reloading mid-arena abandons the in-progress deployment and resumes at the pre-arena shop state.
 - Collapse restores the deck state captured in the selected arena snapshot, not the current Draft Deck from the shop.
 
 ## Acceptance Criteria
@@ -196,8 +194,8 @@ Automatic Cycle End must scan the entire Statement and Function queues.
 - Auto Cycle End does not trigger while any queued card can be played now or after normal lane cooldown clears.
 - Trim draws exactly one card with the existing draw/deal presentation.
 - Trim's bonus draw preserves current queue order and appends the drawn card to the right side of its matching lane.
-- Refund restores capped resource amounts, reports actual restoration, and uses Function lane cooldown.
-- Reload and Collapse preserve authoritative arena state instead of rebuilding from the Draft Deck.
+- Refund arms a three-attack flat discount, reports the armed discount, shows an in-world player aura, and uses Function lane cooldown.
+- Collapse preserves authoritative arena state instead of rebuilding from the Draft Deck.
 
 ## Test Notes
 
@@ -211,6 +209,6 @@ Suggested automated coverage:
 - Rejected lane input when no card in lane is affordable.
 - Auto Cycle End scanning past unaffordable front cards.
 - Trim bonus draw with normal draw pile, empty draw pile plus discard shuffle, and empty both piles.
-- Refund capped restoration at 0, partial, and full amounts.
+- Refund discount affordability, discount consumption, and Cycle End reset.
 - Lane cooldown duration by played card.
-- Arena resume and Collapse preserving saved queue/draw/discard state.
+- Collapse preserving saved queue/draw/discard state.

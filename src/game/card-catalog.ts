@@ -57,7 +57,7 @@ export const ATTACK_CARD_CATALOG: Record<CardId, AttackCardDefinition> = {
     cooldownMs: 1_000,
     damage: 0,
     copyLimit: 10,
-    summary: "Restores capped Compute Rate Limit and Compute Credits.",
+    summary: "Arms a flat Compute discount for the next three attacks this Active Window.",
   },
 };
 

@@ -24,6 +24,7 @@ export interface ComputeCycleState {
   preparingRemainingMs: number;
   computeRefill: number;
   seed: number;
+  refundDiscountAttacksRemaining: number;
 }
 
 export interface ActiveWindowEndCheck {
@@ -33,11 +34,13 @@ export interface ActiveWindowEndCheck {
   rangedCost: number;
   cooldowns: Record<AttackCardType, number>;
   attackCommitted: boolean;
+  refundDiscountAttacksRemaining?: number;
 }
 
 export interface AttackCardAffordability {
   computeCurrent: number;
   allotmentCurrent: number;
+  refundDiscountAttacksRemaining?: number;
 }
 
 export type AttackCardRejectionReason = "rate-limit" | "credits" | "compute";
@@ -47,6 +50,9 @@ const STARTER_RANGED_COUNT = 5;
 export const STARTER_DECK_SIZE = STARTER_MELEE_COUNT + STARTER_RANGED_COUNT;
 export const DEFAULT_QUEUE_LIMIT = 7;
 export const PREPARING_WINDOW_MS = 3_000;
+export const REFUND_DISCOUNT_AMOUNT = 20;
+export const REFUND_DISCOUNT_ATTACKS = 3;
+export const MIN_DISCOUNTED_ATTACK_COST = 1;
 
 export function createStarterComputeCycle(seed = Date.now()): ComputeCycleState {
   return createComputeCycleFromDeck({
@@ -78,6 +84,7 @@ export function createComputeCycleFromDeck(deckCounts: DraftDeck, seed = Date.no
     preparingRemainingMs: 0,
     computeRefill: 0,
     seed: nextSeed(seed),
+    refundDiscountAttacksRemaining: 0,
   };
 }
 
@@ -138,7 +145,17 @@ export function playAttackCard(
   }
 
   next.discardPile.push(card);
+  if (card.id !== "refund" && getDiscountedAttackCost(card, next.refundDiscountAttacksRemaining) < getAttackCardCost(card)) {
+    next.refundDiscountAttacksRemaining = Math.max(0, next.refundDiscountAttacksRemaining - 1);
+  }
   return { played: true, state: next, card };
+}
+
+export function activateRefundDiscount(state: ComputeCycleState): ComputeCycleState {
+  return cloneComputeCycleState({
+    ...state,
+    refundDiscountAttacksRemaining: REFUND_DISCOUNT_ATTACKS,
+  });
 }
 
 export function drawBonusAttackCard(
@@ -176,6 +193,7 @@ export function endActiveWindow(state: ComputeCycleState): ComputeCycleState {
   };
   next.phase = "preparing";
   next.preparingRemainingMs = PREPARING_WINDOW_MS;
+  next.refundDiscountAttacksRemaining = 0;
   return next;
 }
 
@@ -221,6 +239,7 @@ export function cloneComputeCycleState(state: ComputeCycleState): ComputeCycleSt
     preparingRemainingMs: state.preparingRemainingMs,
     computeRefill: state.computeRefill,
     seed: state.seed,
+    refundDiscountAttacksRemaining: Math.max(0, Math.floor(state.refundDiscountAttacksRemaining ?? 0)),
   };
 }
 
@@ -258,6 +277,7 @@ function canEventuallyPlay(
     isAttackCardAffordable(card, {
       computeCurrent: check.computeCurrent,
       allotmentCurrent: check.allotmentCurrent,
+      refundDiscountAttacksRemaining: check.refundDiscountAttacksRemaining,
     })
   );
   if (!hasAffordableQueuedCard) {
@@ -272,8 +292,17 @@ export function isAttackCardAffordable(card: AttackCard, affordability?: AttackC
     return true;
   }
 
-  const cost = getAttackCardDefinition(card.id)?.cost ?? Number.POSITIVE_INFINITY;
+  const cost = getDiscountedAttackCost(card, affordability.refundDiscountAttacksRemaining ?? 0);
   return affordability.computeCurrent >= cost && affordability.allotmentCurrent >= cost;
+}
+
+export function getDiscountedAttackCost(card: AttackCard, refundDiscountAttacksRemaining: number): number {
+  const cost = getAttackCardCost(card);
+  if (card.id === "refund" || refundDiscountAttacksRemaining <= 0 || !Number.isFinite(cost)) {
+    return cost;
+  }
+
+  return Math.max(MIN_DISCOUNTED_ATTACK_COST, cost - REFUND_DISCOUNT_AMOUNT);
 }
 
 function getQueueRejectionReason(
@@ -284,7 +313,7 @@ function getQueueRejectionReason(
     return undefined;
   }
 
-  const costs = cards.map((card) => getAttackCardDefinition(card.id)?.cost ?? Number.POSITIVE_INFINITY);
+  const costs = cards.map((card) => getDiscountedAttackCost(card, affordability.refundDiscountAttacksRemaining ?? 0));
   const lacksRateLimit = costs.every((cost) => affordability.computeCurrent < cost);
   const lacksCredits = costs.every((cost) => affordability.allotmentCurrent < cost);
 
@@ -301,6 +330,10 @@ function getQueueRejectionReason(
   }
 
   return "compute";
+}
+
+function getAttackCardCost(card: AttackCard): number {
+  return getAttackCardDefinition(card.id)?.cost ?? Number.POSITIVE_INFINITY;
 }
 
 function cloneCard(card: AttackCard): AttackCard {

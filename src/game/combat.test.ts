@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   ABILITY_COOLDOWNS_MS,
   calculateRangedSiphonRefund,
-  formatRefundFeedback,
   getCooldownProgress,
   MELEE_DAMAGE,
   RANGED_DIRECT_DAMAGE,
@@ -24,17 +23,6 @@ test("Function siphon refunds scale per bug and cap below the original shot cost
   assert.equal(calculateRangedSiphonRefund(2), 12);
   assert.equal(calculateRangedSiphonRefund(3), 18);
   assert.equal(calculateRangedSiphonRefund(7), 18);
-});
-
-test("Refund feedback reports actual restoration or full compute pools", () => {
-  assert.equal(
-    formatRefundFeedback({ computeRateLimit: 12, computeCredits: 40 }),
-    "Refund restored +12 Compute Rate Limit, +40 Compute Credits.",
-  );
-  assert.equal(
-    formatRefundFeedback({ computeRateLimit: 0, computeCredits: 0 }),
-    "Refund found both compute pools full.",
-  );
 });
 
 test("Function attacks use a broad and quick siphon impact", () => {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  activateRefundDiscount,
   PREPARING_WINDOW_MS,
   advanceComputeCycle,
   createArenaComputeCycle,
@@ -9,6 +10,7 @@ import {
   drawBonusAttackCard,
   endActiveWindow,
   getAttackCardDisplayName,
+  getDiscountedAttackCost,
   playAttackCard,
   shouldEndActiveWindow,
   startActiveWindow,
@@ -59,7 +61,7 @@ test("an arena deployment can start from the current valid Draft Deck", () => {
   assert.equal(allCards.filter((card) => card.id === "bolt").length, 8);
 });
 
-test("arena resume restores saved cycle state without requiring the current Draft Deck", () => {
+test("saved cycle restore uses authoritative cycle state without requiring the current Draft Deck", () => {
   const savedCycle = {
     ...startActiveWindow(createComputeCycleFromDeck({ slash: 18, trim: 1, refund: 1 }, 17), 96),
     discardPile: [
@@ -517,4 +519,60 @@ test("Refund can play from full compute pools, discard, and keep the Active Wind
     }),
     false,
   );
+});
+
+test("Refund arms a three-attack flat discount that favors cheap attacks", () => {
+  const started = activateRefundDiscount({
+    ...startActiveWindow(createStarterComputeCycle(7), 96),
+    queues: {
+      melee: [
+        { id: "slash", name: "Slash", type: "melee" as const },
+        { id: "trim", name: "Trim", type: "melee" as const },
+      ],
+      ranged: [
+        { id: "bolt", name: "Bolt", type: "ranged" as const },
+      ],
+    },
+  });
+
+  assert.equal(started.refundDiscountAttacksRemaining, 3);
+  assert.equal(getDiscountedAttackCost(started.queues.melee[0], started.refundDiscountAttacksRemaining), 1);
+  assert.equal(getDiscountedAttackCost(started.queues.ranged[0], started.refundDiscountAttacksRemaining), 20);
+
+  const played = playAttackCard(started, "melee", {
+    computeCurrent: 1,
+    allotmentCurrent: 1,
+    refundDiscountAttacksRemaining: started.refundDiscountAttacksRemaining,
+  });
+
+  assert.equal(played.played, true);
+  assert.equal(played.card?.id, "slash");
+  assert.equal(played.state.refundDiscountAttacksRemaining, 2);
+});
+
+test("Refund discount keeps an otherwise unaffordable attack available until Cycle End", () => {
+  const discounted = activateRefundDiscount({
+    ...startActiveWindow(createStarterComputeCycle(7), 96),
+    queues: {
+      melee: [
+        { id: "slash", name: "Slash", type: "melee" as const },
+      ],
+      ranged: [],
+    },
+  });
+
+  assert.equal(
+    shouldEndActiveWindow(discounted, {
+      computeCurrent: 1,
+      allotmentCurrent: 1,
+      meleeCost: 18,
+      rangedCost: 40,
+      cooldowns: { melee: 0, ranged: 0 },
+      attackCommitted: false,
+      refundDiscountAttacksRemaining: discounted.refundDiscountAttacksRemaining,
+    }),
+    false,
+  );
+
+  assert.equal(endActiveWindow(discounted).refundDiscountAttacksRemaining, 0);
 });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStarterDeck } from "./deck.ts";
 import { getScaledShopBundleCost } from "./constants.ts";
-import { createComputeCycleFromDeck, createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
+import { createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
 import { RunState } from "./state.ts";
 
 function makeResumeSnapshot(
@@ -84,38 +84,6 @@ test("refundAllotment clamps to max compute credits without restoring rate limit
   assert.equal(state.computeCurrent, 12);
 });
 
-test("Refund restores actual capped Compute Rate Limit and Compute Credits", () => {
-  const state = new RunState();
-  state.beginArena();
-  state.computeCurrent = state.computeMax - 12;
-  state.allotmentCurrent = state.allotmentMax - 5;
-
-  const restored = state.restoreComputeResources(40);
-
-  assert.deepEqual(restored, {
-    computeRateLimit: 12,
-    computeCredits: 5,
-  });
-  assert.equal(state.computeCurrent, state.computeMax);
-  assert.equal(state.allotmentCurrent, state.allotmentMax);
-});
-
-test("Refund reports zero restored resources when both compute pools are full", () => {
-  const state = new RunState();
-  state.beginArena();
-  state.computeCurrent = state.computeMax;
-  state.allotmentCurrent = state.allotmentMax;
-
-  const restored = state.restoreComputeResources(40);
-
-  assert.deepEqual(restored, {
-    computeRateLimit: 0,
-    computeCredits: 0,
-  });
-  assert.equal(state.computeCurrent, state.computeMax);
-  assert.equal(state.allotmentCurrent, state.allotmentMax);
-});
-
 test("spend refuses unaffordable card costs without creating compute debt", () => {
   const state = new RunState();
   state.computeCurrent = 17;
@@ -177,15 +145,6 @@ test("banked tuner charges persist through arena entry and exit", () => {
   state.finishArena("retreated", "Returned alive.");
 
   assert.equal(state.quantumTuners, 2);
-});
-
-test("new arena deployments discard stale resume checkpoints", () => {
-  const state = new RunState();
-  state.saveArenaResume(makeResumeSnapshot());
-
-  state.beginArena();
-
-  assert.equal(state.getSavedArenaResume(), null);
 });
 
 test("Draft Deck edits persist through serialization", () => {
@@ -504,45 +463,30 @@ test("serialize and hydrate round-trip shop state and run history", () => {
   assert.deepEqual(restored.serialize(), source.serialize());
 });
 
-test("hydrate restores interrupted arena saves with checkpoint state preserved", () => {
+test("hydrate returns interrupted arena saves to the pre-arena shop state", () => {
   const source = new RunState();
   source.roundsFinished = 3;
   source.runKills = 11;
+  const preArenaAllotment = source.allotmentCurrent;
+  const preArenaIntegrity = source.integrityCurrent;
   source.beginArena();
-  source.restoreArenaSnapshot(makeResumeSnapshot().snapshot.runState);
-  source.setExtractionReady(true);
-  source.saveArenaResume(makeResumeSnapshot());
 
   const restored = new RunState();
   restored.hydrate(source.serialize());
 
-  assert.equal(restored.sceneMode, "arena");
-  assert.equal(restored.getCurrentRunKills(), 13);
+  assert.equal(restored.sceneMode, "shop");
+  assert.equal(restored.getCurrentRunKills(), 11);
   assert.equal(restored.roundsFinished, 3);
-  assert.equal(restored.allotmentCurrent, 900);
-  assert.equal(restored.integrityCurrent, 76);
-  assert.equal(restored.kills, 2);
-  assert.equal(restored.extractionReady, true);
-  assert.equal(restored.getSavedArenaResume()?.snapshot.computeCycle.queues.melee.length, makeResumeSnapshot().snapshot.computeCycle.queues.melee.length);
+  assert.equal(restored.allotmentCurrent, preArenaAllotment);
+  assert.equal(restored.integrityCurrent, preArenaIntegrity);
+  assert.equal(restored.kills, 0);
+  assert.equal(restored.extractionReady, false);
+  assert.match(restored.notice, /interrupted during deployment/i);
 });
 
-test("hydrate restores named-card arena snapshots while preserving an invalid shop Draft Deck", () => {
-  const savedCycle = {
-    ...startActiveWindow(createComputeCycleFromDeck({ slash: 17, bolt: 1, trim: 1, refund: 1 }, 31), 96),
-    queues: {
-      melee: [
-        { id: "trim", name: "Trim", type: "melee" as const },
-        { id: "slash", name: "Slash", type: "melee" as const },
-      ],
-      ranged: [
-        { id: "refund", name: "Refund", type: "ranged" as const },
-        { id: "bolt", name: "Bolt", type: "ranged" as const },
-      ],
-    },
-  };
+test("hydrate returns interrupted arena saves to shop while preserving an invalid Draft Deck", () => {
   const source = new RunState();
   source.beginArena();
-  source.saveArenaResume(makeResumeSnapshot(savedCycle));
   const persisted = {
     ...source.serialize(),
     draftDeck: { slash: 19, retired: 2, refund: 11 },
@@ -551,55 +495,19 @@ test("hydrate restores named-card arena snapshots while preserving an invalid sh
   const restored = new RunState();
   restored.hydrate(persisted);
 
-  assert.equal(restored.sceneMode, "arena");
+  assert.equal(restored.sceneMode, "shop");
   assert.deepEqual(restored.getDraftDeck(), { slash: 19, retired: 2, refund: 11 });
   assert.equal(
     restored.getDraftDeckValidation().message,
     "Deck contains unavailable cards. Remove them to deploy.",
   );
-  assert.deepEqual(
-    restored.getSavedArenaResume()?.snapshot.computeCycle.queues.melee.map((card) => card.id),
-    ["trim", "slash"],
-  );
-  assert.deepEqual(
-    restored.getSavedArenaResume()?.snapshot.computeCycle.queues.ranged.map((card) => card.id),
-    ["refund", "bolt"],
-  );
 });
 
-test("hydrate accepts legacy arena resume data with missing extraction flag", () => {
-  const source = new RunState();
-  source.beginArena();
-  source.saveArenaResume(makeResumeSnapshot());
-  const legacyState = {
-    ...source.serialize(),
-    savedArenaResume: {
-      ...makeResumeSnapshot(),
-      snapshot: {
-        ...makeResumeSnapshot().snapshot,
-        runState: {
-          ...makeResumeSnapshot().snapshot.runState,
-        },
-      },
-    },
-  } as Omit<ReturnType<RunState["serialize"]>, "extractionReady"> & { extractionReady?: boolean };
-  delete legacyState.extractionReady;
-  delete (legacyState.savedArenaResume!.snapshot.runState as { extractionReady?: boolean }).extractionReady;
-
-  const restored = new RunState();
-  restored.hydrate(legacyState);
-
-  assert.equal(restored.sceneMode, "arena");
-  assert.equal(restored.extractionReady, false);
-  assert.equal(restored.getSavedArenaResume()?.snapshot.runState.extractionReady, undefined);
-});
-
-test("hydrate ignores malformed arena checkpoint data and returns to shop", () => {
+test("hydrate ignores legacy arena checkpoint data and returns to shop", () => {
   const source = new RunState();
   source.beginArena();
   source.roundsFinished = 2;
   source.runKills = 9;
-  source.saveArenaResume(makeResumeSnapshot());
   const corruptedState = {
     ...source.serialize(),
     savedArenaResume: {
@@ -622,7 +530,6 @@ test("hydrate ignores malformed arena checkpoint data and returns to shop", () =
   assert.equal(restored.sceneMode, "shop");
   assert.equal(restored.roundsFinished, 2);
   assert.equal(restored.getCurrentRunKills(), 9);
-  assert.equal(restored.getSavedArenaResume(), null);
   assert.match(restored.notice, /interrupted during deployment/i);
 });
 

@@ -1,5 +1,3 @@
-import type { ArenaSnapshot } from "./quantum-tuner";
-
 import { getScaledShopBundleCost, SHOP_BUNDLES } from "./constants.ts";
 import {
   createStarterDeck,
@@ -58,12 +56,6 @@ export interface ScoreboardEntry {
   endReason?: RunEndReason;
 }
 
-export interface SavedArenaResume {
-  timelineTimeMs: number;
-  arenaElapsedTimeMs?: number;
-  snapshot: ArenaSnapshot;
-}
-
 export interface PersistedGameState {
   version: number;
   runId: number;
@@ -89,7 +81,7 @@ export interface PersistedGameState {
   latestRunSummary: RunSummary | null;
   runHistory: RunHistoryEntry[];
   arenaEntryAllotment: number;
-  savedArenaResume: SavedArenaResume | null;
+  savedArenaResume?: unknown;
   draftDeck?: DraftDeck;
 }
 
@@ -143,7 +135,6 @@ export class RunState extends EventTarget {
   runHistory: RunHistoryEntry[] = [];
 
   private arenaEntryAllotment = this.allotmentCurrent;
-  private savedArenaResume: SavedArenaResume | null = null;
   private draftDeck: DraftDeck = createStarterDeck();
 
   emitChange(): void {
@@ -204,7 +195,6 @@ export class RunState extends EventTarget {
     this.latestRunSummary = summary;
     this.runActive = false;
     this.sceneMode = "shop";
-    this.savedArenaResume = null;
     this.arenaPrompt = "";
     this.extractionReady = false;
     this.kills = 0;
@@ -339,7 +329,6 @@ export class RunState extends EventTarget {
     }
 
     this.sceneMode = "arena";
-    this.savedArenaResume = null;
     this.kills = 0;
     this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
     this.arenaEntryAllotment = this.allotmentCurrent;
@@ -356,7 +345,6 @@ export class RunState extends EventTarget {
     this.extractionReady = false;
     this.arenaPrompt = "";
     this.kills = 0;
-    this.savedArenaResume = null;
     if (note) {
       this.notice = note;
     }
@@ -388,24 +376,6 @@ export class RunState extends EventTarget {
     this.allotmentCurrent += refunded;
     this.emitChange();
     return refunded;
-  }
-
-  restoreComputeResources(amount: number): { computeRateLimit: number; computeCredits: number } {
-    const safeAmount = Math.max(0, Math.floor(amount));
-    if (safeAmount <= 0) {
-      return { computeRateLimit: 0, computeCredits: 0 };
-    }
-
-    const computeRateLimit = Math.min(safeAmount, this.computeMax - this.computeCurrent);
-    const computeCredits = Math.min(safeAmount, this.allotmentMax - this.allotmentCurrent);
-    if (computeRateLimit <= 0 && computeCredits <= 0) {
-      return { computeRateLimit: 0, computeCredits: 0 };
-    }
-
-    this.computeCurrent += computeRateLimit;
-    this.allotmentCurrent += computeCredits;
-    this.emitChange();
-    return { computeRateLimit, computeCredits };
   }
 
   applyDamage(amount: number): boolean {
@@ -496,9 +466,7 @@ export class RunState extends EventTarget {
   }
 
   private getCurrentRunTotalArenaTimeMs(): number {
-    const activeArenaTimeMs =
-      this.savedArenaResume?.arenaElapsedTimeMs ?? this.savedArenaResume?.timelineTimeMs ?? 0;
-    return this.totalArenaTimeMs + (this.sceneMode === "arena" ? activeArenaTimeMs : 0);
+    return this.totalArenaTimeMs;
   }
 
   private compareScoreboardEntries(left: ScoreboardEntry, right: ScoreboardEntry): number {
@@ -551,10 +519,6 @@ export class RunState extends EventTarget {
     return [...ranked.slice(0, Math.max(0, limit - 1)), activeEntry].sort((left, right) =>
       this.compareScoreboardEntries(left, right),
     );
-  }
-
-  getSavedArenaResume(): SavedArenaResume | null {
-    return this.savedArenaResume ? structuredClone(this.savedArenaResume) : null;
   }
 
   getDraftDeck(): DraftDeck {
@@ -614,14 +578,6 @@ export class RunState extends EventTarget {
     return true;
   }
 
-  saveArenaResume(resume: SavedArenaResume): void {
-    this.savedArenaResume = structuredClone(resume);
-  }
-
-  clearArenaResume(): void {
-    this.savedArenaResume = null;
-  }
-
   serialize(): PersistedGameState {
     return {
       version: PERSISTENCE_VERSION,
@@ -648,7 +604,6 @@ export class RunState extends EventTarget {
       latestRunSummary: this.latestRunSummary ? structuredClone(this.latestRunSummary) : null,
       runHistory: structuredClone(this.runHistory),
       arenaEntryAllotment: this.arenaEntryAllotment,
-      savedArenaResume: this.savedArenaResume ? structuredClone(this.savedArenaResume) : null,
       draftDeck: structuredClone(this.draftDeck),
     };
   }
@@ -684,26 +639,15 @@ export class RunState extends EventTarget {
     this.latestRunSummary = raw.latestRunSummary ? structuredClone(raw.latestRunSummary) : null;
     this.runHistory = structuredClone(raw.runHistory);
     this.arenaEntryAllotment = raw.arenaEntryAllotment;
-    this.savedArenaResume = isSavedArenaResume(raw.savedArenaResume)
-      ? structuredClone(raw.savedArenaResume)
-      : null;
     this.draftDeck = isDraftDeck(raw.draftDeck) ? normalizeDeck(raw.draftDeck) : createStarterDeck();
 
     if (this.sceneMode === "arena") {
-      if (this.savedArenaResume) {
-        this.restoreArenaSnapshot(this.savedArenaResume.snapshot.runState, {
-          emitChange: false,
-          bumpTimelineVersion: false,
-        });
-      } else {
-        this.sceneMode = "shop";
-        this.kills = 0;
-        this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
-        this.arenaPrompt = "";
-        this.extractionReady = false;
-        this.notice =
-          "Session interrupted during deployment. Returned to procurement chamber with spent resources preserved.";
-      }
+      this.sceneMode = "shop";
+      this.kills = 0;
+      this.computeCurrent = Math.min(this.computeMax, Math.max(0, this.allotmentCurrent));
+      this.arenaPrompt = "";
+      this.extractionReady = false;
+      this.notice = "Session interrupted during deployment. Returned to procurement chamber.";
     }
 
     if (this.sceneMode === "shop") {
@@ -829,7 +773,6 @@ export class RunState extends EventTarget {
       note: "No arena deployment recorded yet.",
     };
     this.arenaEntryAllotment = this.allotmentCurrent;
-    this.savedArenaResume = null;
     this.draftDeck = createStarterDeck();
   }
 
@@ -874,10 +817,6 @@ function draftDecksEqual(left: DraftDeck, right: DraftDeck): boolean {
   return true;
 }
 
-function isSnapshotVector(value: unknown): value is { x: number; y: number } {
-  return isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y);
-}
-
 function isArenaReport(value: unknown): value is ArenaReport {
   return (
     isRecord(value) &&
@@ -900,147 +839,6 @@ function isRunSummary(value: unknown): value is RunSummary {
     (value.totalArenaTimeMs === undefined || isFiniteNumber(value.totalArenaTimeMs)) &&
     isFiniteNumber(value.quantumTunersUsed) &&
     isFiniteNumber(value.endedAtRunId)
-  );
-}
-
-function isArenaRunStateSnapshot(value: unknown): value is ArenaRunStateSnapshot {
-  return (
-    isRecord(value) &&
-    isFiniteNumber(value.computeCurrent) &&
-    isFiniteNumber(value.allotmentCurrent) &&
-    isFiniteNumber(value.integrityCurrent) &&
-    isFiniteNumber(value.kills) &&
-    (typeof value.extractionReady === "boolean" || value.extractionReady === undefined) &&
-    typeof value.notice === "string" &&
-    typeof value.arenaPrompt === "string"
-  );
-}
-
-function isSnapshotCooldowns(value: unknown): value is {
-  dash: number;
-  melee: number;
-  ranged: number;
-} {
-  return (
-    isRecord(value) &&
-    isFiniteNumber(value.dash) &&
-    isFiniteNumber(value.melee) &&
-    isFiniteNumber(value.ranged)
-  );
-}
-
-function isSpriteDirection(value: unknown): boolean {
-  return (
-    value === "n" ||
-    value === "ne" ||
-    value === "e" ||
-    value === "se" ||
-    value === "s" ||
-    value === "sw" ||
-    value === "w" ||
-    value === "nw"
-  );
-}
-
-function isPlayerArenaSnapshot(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    isSnapshotVector(value.position) &&
-    isSnapshotVector(value.velocity) &&
-    isSnapshotVector(value.dashDirection) &&
-    isSpriteDirection(value.facing) &&
-    isFiniteNumber(value.angle) &&
-    isFiniteNumber(value.dashTimer) &&
-    isFiniteNumber(value.dashInvulnerabilityTimer) &&
-    isFiniteNumber(value.rangedMovementPauseTimer) &&
-    isFiniteNumber(value.playerAttackTimer) &&
-    isSnapshotCooldowns(value.cooldowns)
-  );
-}
-
-function isEnemyArenaSnapshot(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    isFiniteNumber(value.id) &&
-    typeof value.alive === "boolean" &&
-    isFiniteNumber(value.hp) &&
-    isSnapshotVector(value.position) &&
-    isSnapshotVector(value.velocity) &&
-    isSnapshotVector(value.lungeDirection) &&
-    isFiniteNumber(value.touchCooldown) &&
-    isFiniteNumber(value.attackTimer) &&
-    isFiniteNumber(value.stunTimer) &&
-    isFiniteNumber(value.lungeCooldown) &&
-    isFiniteNumber(value.lungeWindupTimer) &&
-    isFiniteNumber(value.lungeTimer) &&
-    isFiniteNumber(value.orbitSeed)
-  );
-}
-
-function isProjectileArenaSnapshot(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    isSnapshotVector(value.position) &&
-    isSnapshotVector(value.velocity) &&
-    isFiniteNumber(value.ttl) &&
-    isFiniteNumber(value.rotation)
-  );
-}
-
-function isAttackCard(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    (value.type === "melee" || value.type === "ranged")
-  );
-}
-
-function isAttackQueues(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.melee) &&
-    value.melee.every(isAttackCard) &&
-    Array.isArray(value.ranged) &&
-    value.ranged.every(isAttackCard)
-  );
-}
-
-function isComputeCycleSnapshot(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    (value.phase === "active" || value.phase === "preparing") &&
-    Array.isArray(value.drawPile) &&
-    value.drawPile.every(isAttackCard) &&
-    Array.isArray(value.discardPile) &&
-    value.discardPile.every(isAttackCard) &&
-    isAttackQueues(value.queues) &&
-    isFiniteNumber(value.queueLimit) &&
-    isFiniteNumber(value.preparingRemainingMs) &&
-    isFiniteNumber(value.computeRefill) &&
-    isFiniteNumber(value.seed)
-  );
-}
-
-function isArenaSnapshotRecord(value: unknown): value is ArenaSnapshot {
-  return (
-    isRecord(value) &&
-    isArenaRunStateSnapshot(value.runState) &&
-    isComputeCycleSnapshot(value.computeCycle) &&
-    isPlayerArenaSnapshot(value.player) &&
-    typeof value.arenaCleared === "boolean" &&
-    Array.isArray(value.projectiles) &&
-    value.projectiles.every(isProjectileArenaSnapshot) &&
-    Array.isArray(value.enemies) &&
-    value.enemies.every(isEnemyArenaSnapshot)
-  );
-}
-
-function isSavedArenaResume(value: unknown): value is SavedArenaResume {
-  return (
-    isRecord(value) &&
-    isFiniteNumber(value.timelineTimeMs) &&
-    (value.arenaElapsedTimeMs === undefined || isFiniteNumber(value.arenaElapsedTimeMs)) &&
-    isArenaSnapshotRecord(value.snapshot)
   );
 }
 

@@ -128,7 +128,13 @@ export function selectCollapseTarget(
 ): TimedArenaSnapshot | null {
   const targetTime = timelineTimeMs - rewindMs;
   if (targetTime < 0) {
-    return null;
+    const oldest = history[0];
+    return oldest
+      ? {
+          timelineTimeMs: oldest.timelineTimeMs,
+          snapshot: cloneSnapshot(oldest.snapshot),
+        }
+      : null;
   }
 
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -141,7 +147,13 @@ export function selectCollapseTarget(
     }
   }
 
-  return null;
+  const oldest = history[0];
+  return oldest
+    ? {
+        timelineTimeMs: oldest.timelineTimeMs,
+        snapshot: cloneSnapshot(oldest.snapshot),
+      }
+    : null;
 }
 
 export function getCollapseAvailability(

@@ -28,14 +28,3 @@ export function calculateRangedSiphonRefund(affectedEnemies: number): number {
   const safeEnemyCount = Math.max(0, Math.floor(affectedEnemies));
   return Math.min(RANGED_SIPHON_REFUND_CAP, safeEnemyCount * RANGED_SIPHON_REFUND_PER_ENEMY);
 }
-
-export function formatRefundFeedback(restored: {
-  computeRateLimit: number;
-  computeCredits: number;
-}): string {
-  if (restored.computeRateLimit <= 0 && restored.computeCredits <= 0) {
-    return "Refund found both compute pools full.";
-  }
-
-  return `Refund restored +${restored.computeRateLimit} Compute Rate Limit, +${restored.computeCredits} Compute Credits.`;
-}

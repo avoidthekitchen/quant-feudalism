@@ -522,10 +522,10 @@ deployButton?.addEventListener("click", () => {
     return;
   }
 
+  gameState.persistToStorage();
   if (!gameState.beginArena()) {
     return;
   }
-  gameState.persistToStorage();
   setShopModalOpen(false);
   setWorkshopModalOpen(false);
   game.scene.start(SCENES.arena);

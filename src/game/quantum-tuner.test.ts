@@ -139,12 +139,24 @@ test("extractHistoryRange returns cloned snapshots within the requested window",
   assert.equal(history[1].snapshot.player.position.x, 101);
 });
 
-test("getCollapseAvailability reports insufficient history before five seconds exist", () => {
+test("getCollapseAvailability falls back to the oldest snapshot before five seconds exist", () => {
   const history = [recordArenaSnapshot([], createSnapshot(0), 4_000)][0];
   const availability = getCollapseAvailability(history, 4_000, 1);
 
-  assert.equal(availability.allowed, false);
-  assert.equal(availability.reason, "insufficient-history");
+  assert.equal(availability.allowed, true);
+  assert.equal(availability.target?.timelineTimeMs, 4_000);
+  assert.equal(availability.target?.snapshot.player.position.x, 100);
+});
+
+test("getCollapseAvailability falls back to oldest retained snapshot when retained history is shorter than five seconds", () => {
+  let history: TimedArenaSnapshot[] = [];
+  history = recordArenaSnapshot(history, createSnapshot(6), 6_000);
+  history = recordArenaSnapshot(history, createSnapshot(8), 8_000);
+  const availability = getCollapseAvailability(history, 10_000, 1);
+
+  assert.equal(availability.allowed, true);
+  assert.equal(availability.target?.timelineTimeMs, 6_000);
+  assert.equal(availability.target?.snapshot.player.position.x, 106);
 });
 
 test("stored snapshots keep exact restore shape and do not leak newer timeline mutations", () => {

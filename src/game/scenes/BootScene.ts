@@ -22,11 +22,6 @@ export class BootScene extends Phaser.Scene {
     createGeneratedArt(this);
     gameState.hydrateFromStorage();
 
-    if (gameState.sceneMode === "arena") {
-      this.scene.start(SCENES.arena, { resume: gameState.getSavedArenaResume() ?? undefined });
-      return;
-    }
-
     this.scene.start(SCENES.shop);
   }
 }

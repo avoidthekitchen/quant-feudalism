@@ -95,8 +95,8 @@ Quantum Tuner charges are bought in the Workshop and banked for the current run:
 - A run ends automatically when `Integrity` is `0` and the player has fewer than `180` Compute Credits left, which means they cannot buy a repair.
 - When a run ends, the game shows a summary with rounds cleared, kills, and Quantum Tuner charges used.
 - Starting a new run resets bug bounty credits, Compute Credits, integrity, banked Quantum Tuners, rounds finished, and kills back to the opening values.
-- Reloading the page resumes the active run. If the player was mid-Arena, the game resumes from the latest saved arena checkpoint.
-- Only the current arena checkpoint persists across reloads. The full 15-second Collapse rewind history does not.
+- Reloading the page resumes the active run from the last shop state.
+- If the player reloads mid-Arena, the deployment is abandoned and the run returns to the pre-Arena shop state; mid-Arena checkpoints are not persisted.
 
 ## Arena Controls
 
@@ -177,16 +177,18 @@ Trim is a Special Statement card that trades Slash's damage efficiency for extra
 
 ### Refund
 
-Refund is a Special Function card that restores limited compute resources without firing a projectile.
+Refund is a Special Function card that discounts upcoming attacks without firing a projectile.
 
 - Cost: `0` Compute.
 - Cooldown: `1000ms`.
 - Damage: `0`.
 - Refund resolves as an immediate self-effect.
-- It restores up to `40` Compute Rate Limit, capped by the normal Compute Rate Limit maximum.
-- It restores up to `40` Compute Credits, capped by the normal Compute Credit maximum.
-- Feedback reports the actual restored amounts after caps are applied.
-- Refund can be played when both compute pools are already full; it restores `0`, moves to discard, and starts Function cooldown.
+- It arms a discount for the next `3` non-Refund attacks played during the current Active Window.
+- Each discounted attack costs `20` less Compute, but never below `1` Compute.
+- The discount applies to both Compute Rate Limit and Compute Credits.
+- The discount is lost at Cycle End.
+- Refund can be played when both compute pools are already full; it moves to discard, arms the discount, and starts Function cooldown.
+- While armed, a fiery glow around the player shows the remaining discounted attacks and fades as each discount is consumed.
 
 ## Deck Builder
 
@@ -224,11 +226,11 @@ If the draw pile cannot satisfy a draw, the discard pile shuffles into a new dra
 
 ## Quantum Tuner And Collapse
 
-Press `Q` in the Arena to trigger Collapse if at least one Quantum Tuner charge is banked and there is at least five seconds of recorded timeline history.
+Press `Q` in the Arena to trigger Collapse if at least one Quantum Tuner charge is banked and there is recorded timeline history. Lethal damage also auto-triggers Collapse before true death if a charge is available.
 
 - Each Collapse consumes `1` banked Quantum Tuner charge.
-- Collapse rewinds the exact authoritative Arena state by `5s`.
-- The visible rewind effect compresses those `5s` into a `1s` cinematic backward scrub before control resumes.
+- Collapse rewinds the exact authoritative Arena state by up to `5s`; if less history is available, it rewinds to the oldest available snapshot and still consumes the charge.
+- The visible rewind effect compresses the discarded branch into a `1s` cinematic backward scrub before control resumes.
 - Player position, movement state, cooldowns, compute recovery delay, integrity, Compute Rate Limit, Compute Credits, kills, and prompt/status text revert to the earlier snapshot.
 - Bugs return to their earlier positions and state, including resurrection of bugs that were dead in the discarded timeline.
 - Projectiles and arena clear-state also revert to the earlier snapshot.
