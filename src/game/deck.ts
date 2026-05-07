@@ -118,7 +118,7 @@ export function validateDraftDeck(deck: DraftDeck): DeckValidation {
     const definition = getAttackCardDefinition(overLimitEntry[0]);
     return {
       valid: false,
-      message: `Special cards are limited to 10 copies each. Reduce ${definition?.name ?? overLimitEntry[0]} to deploy.`,
+      message: `Special cards are limited to ${definition?.copyLimit ?? 10} copies each. Reduce ${definition?.name ?? overLimitEntry[0]} to deploy.`,
       total,
     };
   }
