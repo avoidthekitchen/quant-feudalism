@@ -59,7 +59,7 @@ Each save file now revolves around runs. A run starts in the shop, spans repeate
 
 Within a run, start in the shop, buy Compute Credits with bug bounty credits, deploy into the arena, clear bugs, and extract at the northern gate. Clearing all bugs pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving bugs void the clear bonus.
 
-The first arena round starts with `5` bugs. Each cleared round increases future bug count by `1`, up to `20` hand-placed spawn points. `Rounds Finished` and `Kills` are tracked across the whole run, and the shop sidebar shows the top three runs ranked by rounds finished, with kills as a secondary stat.
+The first arena round starts with `5` bugs. Each cleared round increases future bug count by `1`, up to `20` hand-placed spawn points. `Rounds Finished` and `Kills` are tracked across the whole run, and the splash screen scoreboard shows the top three runs ranked by rounds finished, with kills as a secondary stat.
 
 ## Resources
 
@@ -104,9 +104,10 @@ Quantum Tuner charges are bought in the Workshop and banked for the current run:
 - Dash: `Space`
 - Statement: `Left Click`
 - Function: `Right Click`
-- End Active Window: `E`
+- Discard Cycle: `E`
 - Collapse: `Q`
-- Extract: `F` at the gate
+- Extract / Interact: `F`
+- Pause: `Esc`
 
 ## Player Movement
 
