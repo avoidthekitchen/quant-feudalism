@@ -68,6 +68,18 @@ const startNewRunButton = document.querySelector<HTMLButtonElement>(
 );
 const deployButton =
   document.querySelector<HTMLButtonElement>("#deploy-button");
+const deckAccessCountLabel =
+  document.querySelector<HTMLElement>("#deck-access-count-label");
+const deckAccessNote =
+  document.querySelector<HTMLElement>("#deck-access-note");
+const deckCountLabel =
+  document.querySelector<HTMLElement>("#deck-count-label");
+const deckValidationNote =
+  document.querySelector<HTMLParagraphElement>("#deck-validation-note");
+const deckBuilderList =
+  document.querySelector<HTMLDivElement>("#deck-builder-list");
+const deckResetButton =
+  document.querySelector<HTMLButtonElement>("#deck-reset-button");
 const healButton = document.querySelector<HTMLButtonElement>("#heal-button");
 const healLabel = document.querySelector<HTMLElement>("#heal-label");
 const healCostLabel = document.querySelector<HTMLElement>("#heal-cost-label");
@@ -186,6 +198,89 @@ function renderScoreboard(): void {
   });
 }
 
+function renderDeckBuilder(): void {
+  if (
+    !deckAccessCountLabel ||
+    !deckAccessNote ||
+    !deckCountLabel ||
+    !deckValidationNote ||
+    !deckBuilderList ||
+    !deckResetButton
+  ) {
+    return;
+  }
+
+  const validation = gameState.getDraftDeckValidation();
+  const rows = gameState.getDeckBuilderRows();
+
+  deckAccessCountLabel.textContent = `${validation.total} / 100`;
+  deckAccessNote.textContent = validation.message;
+  deckAccessNote.classList.toggle("invalid", !validation.valid);
+  deckCountLabel.textContent = `${validation.total} / 100`;
+  deckValidationNote.textContent = validation.message;
+  deckValidationNote.classList.toggle("invalid", !validation.valid);
+  deckBuilderList.replaceChildren();
+
+  rows.forEach((row) => {
+    const item = document.createElement("div");
+    item.className = `deck-builder-row${row.available ? "" : " unavailable"}`;
+
+    const meta = document.createElement("div");
+    meta.className = "deck-card-meta";
+    const title = document.createElement("div");
+    title.className = "deck-card-title";
+    const marker = document.createElement("span");
+    marker.className = "deck-card-marker";
+    marker.textContent = row.available
+      ? row.definition?.cardClass === "special"
+        ? "S"
+        : ""
+      : "X";
+    marker.setAttribute("aria-hidden", "true");
+    const name = document.createElement("strong");
+    name.textContent = row.name;
+    title.append(marker, name);
+
+    const details = document.createElement("span");
+    details.className = "deck-card-details";
+    details.textContent = row.details;
+    details.title = row.details;
+    meta.append(title, details);
+
+    const controls = document.createElement("div");
+    controls.className = "deck-card-controls";
+    const decrement = document.createElement("button");
+    decrement.type = "button";
+    decrement.className = "deck-count-button";
+    decrement.textContent = "-";
+    decrement.disabled = !row.canDecrement;
+    decrement.setAttribute("aria-label", `Remove one ${row.name}`);
+    decrement.addEventListener("click", () => {
+      gameState.decrementDraftCard(row.id);
+    });
+
+    const count = document.createElement("span");
+    count.className = "deck-card-count";
+    count.textContent = row.count.toString();
+
+    const increment = document.createElement("button");
+    increment.type = "button";
+    increment.className = "deck-count-button";
+    increment.textContent = "+";
+    increment.disabled = !row.canIncrement;
+    increment.setAttribute("aria-label", `Add one ${row.name}`);
+    increment.addEventListener("click", () => {
+      gameState.incrementDraftCard(row.id);
+    });
+
+    controls.append(decrement, count, increment);
+    item.append(meta, controls);
+    deckBuilderList.append(item);
+  });
+
+  deckResetButton.disabled = !gameState.runActive || gameState.sceneMode !== "shop";
+}
+
 function renderHud(): void {
   if (
     !sceneChip ||
@@ -215,13 +310,15 @@ function renderHud(): void {
   );
   const throttle = gameState.getThrottleSeverity();
   const inShop = gameState.sceneMode === "shop";
+  const deckValidation = gameState.getDraftDeckValidation();
   const summaryOpen =
     inShop && !gameState.runActive && Boolean(gameState.latestRunSummary);
   const deployDisabled =
     !inShop ||
     !gameState.runActive ||
     gameState.allotmentCurrent <= 0 ||
-    gameState.integrityCurrent <= 0;
+    gameState.integrityCurrent <= 0 ||
+    !deckValidation.valid;
   if (!inShop) {
     shopModalOpen = false;
     workshopModalOpen = false;
@@ -250,6 +347,7 @@ function renderHud(): void {
   killsLabel!.textContent = gameState.getCurrentRunKills().toString();
   roundsLabel!.textContent = gameState.roundsFinished.toString();
   renderScoreboard();
+  renderDeckBuilder();
 
   if (lastHudTimelineVersion !== gameState.hudTimelineVersion) {
     noteHistory.splice(0, noteHistory.length, gameState.notice);
@@ -279,7 +377,9 @@ function renderHud(): void {
       ? "Run Ended"
       : gameState.integrityCurrent <= 0
         ? "Repair Integrity at Workshop"
-        : "Compute Credits Required"
+        : gameState.allotmentCurrent <= 0
+          ? "Compute Credits Required"
+          : deckValidation.message
     : "Enter Arena";
 
   healButton!.disabled =
@@ -407,20 +507,39 @@ workshopBackdrop?.addEventListener("click", () => {
 });
 
 deployButton?.addEventListener("click", () => {
+  const deckValidation = gameState.getDraftDeckValidation();
+
   if (
     gameState.sceneMode !== "shop" ||
     !gameState.runActive ||
     gameState.allotmentCurrent <= 0 ||
-    gameState.integrityCurrent <= 0
+    gameState.integrityCurrent <= 0 ||
+    !deckValidation.valid
   ) {
+    if (!deckValidation.valid) {
+      gameState.setNotice(deckValidation.message);
+    }
     return;
   }
 
-  gameState.beginArena();
+  if (!gameState.beginArena()) {
+    return;
+  }
   gameState.persistToStorage();
   setShopModalOpen(false);
   setWorkshopModalOpen(false);
   game.scene.start(SCENES.arena);
+});
+
+deckResetButton?.addEventListener("click", () => {
+  if (
+    gameState.hasDraftDeckEdits() &&
+    !window.confirm("Reset Draft Deck to 15 Slash and 5 Bolt? Current edits will be discarded.")
+  ) {
+    return;
+  }
+
+  gameState.resetDraftDeckToStarter();
 });
 
 startNewRunButton?.addEventListener("click", () => {

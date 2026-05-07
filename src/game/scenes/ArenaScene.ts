@@ -11,17 +11,25 @@ import {
   RANGED_PROJECTILE_SPEED,
   RANGED_SPLASH_DAMAGE,
   type CombatAbilityAction,
+  formatRefundFeedback,
 } from "../combat";
 import {
   advanceComputeCycle,
+  createArenaComputeCycle,
   createStarterComputeCycle,
+  drawBonusAttackCard,
   endActiveWindow,
+  getAttackCardDisplayName,
+  isAttackCardAffordable,
   playAttackCard,
   shouldEndActiveWindow,
   startActiveWindow,
+  type AttackCard,
+  type AttackCardRejectionReason,
   type AttackCardType,
   type ComputeCycleState,
 } from "../compute-cycle";
+import { getAttackCardDefinition } from "../card-catalog";
 import {
   ACTOR_DISPLAY_SCALE,
   DRONE_SHEET_KEY,
@@ -78,6 +86,7 @@ type HudCardView = {
   container: Phaser.GameObjects.Container;
   frame: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
+  classMarker: Phaser.GameObjects.Text;
   cross: Phaser.GameObjects.Graphics;
   homeX: number;
   homeY: number;
@@ -217,6 +226,11 @@ export class ArenaScene extends Phaser.Scene {
     melee: 0,
     ranged: 0,
   };
+  private cooldownDurationMs: Record<AbilityAction, number> = {
+    dash: ABILITY_COOLDOWNS_MS.dash,
+    melee: ABILITY_COOLDOWNS_MS.melee,
+    ranged: ABILITY_COOLDOWNS_MS.ranged,
+  };
   private cooldownIndicators: Partial<Record<AbilityAction, CooldownIndicator>> = {};
   private computeCycle: ComputeCycleState = startActiveWindow(createStarterComputeCycle(1), gameState.computeMax);
   private attackQueueHud?: AttackQueueHud;
@@ -267,7 +281,24 @@ export class ArenaScene extends Phaser.Scene {
       melee: 0,
       ranged: 0,
     };
-    this.computeCycle = startActiveWindow(createStarterComputeCycle(this.timelineTimeMs + gameState.runId), gameState.computeMax);
+    this.cooldownDurationMs = {
+      dash: ABILITY_COOLDOWNS_MS.dash,
+      melee: ABILITY_COOLDOWNS_MS.melee,
+      ranged: ABILITY_COOLDOWNS_MS.ranged,
+    };
+    const currentDraftDeck = data?.resume ? {} : gameState.tryGetDeployableDeck();
+    if (!data?.resume && !currentDraftDeck) {
+      gameState.restoreForShop(gameState.getDraftDeckValidation().message);
+      this.scene.start(SCENES.shop);
+      return;
+    }
+
+    this.computeCycle = createArenaComputeCycle({
+      currentDraftDeck,
+      resumeCycle: data?.resume?.snapshot.computeCycle,
+      seed: this.timelineTimeMs + gameState.runId,
+      computeRefill: gameState.computeMax,
+    });
     gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
     gameState.emitChange();
     this.transientVisuals.clear();
@@ -912,8 +943,9 @@ export class ArenaScene extends Phaser.Scene {
     };
   }
 
-  private completeAbilityAttempt(action: AbilityAction, attempt: AbilityAttempt): void {
-    this.cooldownRemainingMs[action] = this.cooldownForAction(action);
+  private completeAbilityAttempt(action: AbilityAction, _attempt: AbilityAttempt, cooldownMs = this.cooldownForAction(action)): void {
+    this.cooldownDurationMs[action] = cooldownMs;
+    this.cooldownRemainingMs[action] = cooldownMs;
   }
 
   private createCooldownIndicators(): void {
@@ -952,7 +984,7 @@ export class ArenaScene extends Phaser.Scene {
       indicator.container.setPosition(this.player.x + offset.x, this.player.y + offset.y);
       indicator.container.setDepth(this.player.y + 40);
 
-      const cooldownMs = this.cooldownForAction(action);
+      const cooldownMs = this.cooldownDurationMs[action];
       const remainingMs = this.cooldownRemainingMs[action];
       const progress = getCooldownProgress(cooldownMs, remainingMs);
       const ready = remainingMs <= 0;
@@ -1099,10 +1131,17 @@ export class ArenaScene extends Phaser.Scene {
 
     const label = this.add.text(0, 0, "", {
       fontFamily: "Azeret Mono, monospace",
-      fontSize: "15px",
+      fontSize: "6px",
       color: "#071015",
     });
     label.setOrigin(0.5);
+
+    const classMarker = this.add.text(8, -9, "", {
+      fontFamily: "Azeret Mono, monospace",
+      fontSize: "7px",
+      color: "#ff4fa4",
+    });
+    classMarker.setOrigin(0.5);
 
     const cross = this.add.graphics();
     cross.lineStyle(3, 0xff3d5a, 0.92);
@@ -1114,13 +1153,14 @@ export class ArenaScene extends Phaser.Scene {
     cross.strokePath();
     cross.setVisible(false);
 
-    container.add([frame, label, cross]);
+    container.add([frame, label, classMarker, cross]);
     container.setVisible(false);
 
     return {
       container,
       frame,
       label,
+      classMarker,
       cross,
       homeX: x,
       homeY: y,
@@ -1146,15 +1186,15 @@ export class ArenaScene extends Phaser.Scene {
     );
     hud.drawCount.setText(`DRAW ${this.computeCycle.drawPile.length}`);
     hud.discardCount.setText(`DISCARD ${this.computeCycle.discardPile.length}`);
-    this.syncHudCards(hud.meleeCards, this.computeCycle.queues.melee, "S", preparing);
-    this.syncHudCards(hud.rangedCards, this.computeCycle.queues.ranged, "F", preparing);
+    this.syncHudCards(hud.meleeCards, this.computeCycle.queues.melee, "melee", preparing);
+    this.syncHudCards(hud.rangedCards, this.computeCycle.queues.ranged, "ranged", preparing);
     this.syncPreparePile(preparing);
   }
 
   private syncHudCards(
     views: HudCardView[],
-    cards: { type: AttackCardType }[],
-    label: string,
+    cards: AttackCard[],
+    fallbackType: AttackCardType,
     preparing: boolean,
   ): void {
     views.forEach((view, index) => {
@@ -1167,13 +1207,18 @@ export class ArenaScene extends Phaser.Scene {
         return;
       }
 
-      const type = cards[index]?.type ?? (label === "S" ? "melee" : "ranged");
-      const blocked = preparing || !this.canAffordAttackCard(type);
+      const card = cards[index];
+      const type = card?.type ?? fallbackType;
+      const definition = card ? getAttackCardDefinition(card.id) : undefined;
+      const special = definition?.cardClass === "special";
+      const blocked = preparing || !this.canAffordAttackCard(card);
       const fill = type === "melee" ? 0xdffcf3 : 0xffcf66;
-      view.label.setText(label);
+      view.label.setText(card ? getAttackCardDisplayName(card) : "");
       view.label.setColor(blocked ? "#7c8890" : "#071015");
+      view.classMarker.setText(special ? "S" : "");
+      view.classMarker.setColor(blocked ? "#b85a78" : "#ff4fa4");
       view.frame.setFillStyle(blocked ? 0x22313a : fill, blocked ? 0.72 : 1);
-      view.frame.setStrokeStyle(2, blocked ? 0xff3d5a : 0x071015, blocked ? 0.86 : 0.5);
+      view.frame.setStrokeStyle(2, blocked ? 0xff3d5a : special ? 0xff4fa4 : 0x071015, blocked || special ? 0.86 : 0.5);
       view.cross.setVisible(blocked);
     });
   }
@@ -1200,9 +1245,29 @@ export class ArenaScene extends Phaser.Scene {
     ]);
   }
 
-  private canAffordAttackCard(type: AttackCardType): boolean {
-    const cost = type === "melee" ? gameState.meleeCost : gameState.rangedCost;
-    return gameState.computeCurrent >= cost && gameState.allotmentCurrent >= cost;
+  private canAffordAttackCard(card?: AttackCard): boolean {
+    if (!card) {
+      return false;
+    }
+
+    return isAttackCardAffordable(card, {
+      computeCurrent: gameState.computeCurrent,
+      allotmentCurrent: gameState.allotmentCurrent,
+    });
+  }
+
+  private setAttackCardRejectionNotice(label: "Statement" | "Function", reason?: AttackCardRejectionReason): void {
+    if (reason === "rate-limit") {
+      gameState.setNotice(`${label} denied. Insufficient Compute Rate Limit.`);
+      return;
+    }
+
+    if (reason === "credits") {
+      gameState.setNotice(`${label} denied. Insufficient Compute Credits.`);
+      return;
+    }
+
+    gameState.setNotice(`${label} denied. Insufficient Compute Rate Limit and Compute Credits.`);
   }
 
   private syncPreparePile(preparing: boolean): void {
@@ -1273,6 +1338,30 @@ export class ArenaScene extends Phaser.Scene {
         delay: index * 42,
         ease: "Cubic.easeOut",
       });
+    });
+  }
+
+  private animateDealtAttackCard(type: AttackCardType, queueIndex: number): void {
+    const hud = this.attackQueueHud;
+    if (!hud) {
+      return;
+    }
+
+    const card = (type === "melee" ? hud.meleeCards : hud.rangedCards)[queueIndex];
+    if (!card || !card.container.visible) {
+      return;
+    }
+
+    const startX = -this.scale.width / 2 - 46;
+    this.tweens.killTweensOf(card.container);
+    card.container.setPosition(startX, card.homeY);
+    card.container.setAngle(-9);
+    this.tweens.add({
+      targets: card.container,
+      x: card.homeX,
+      angle: 0,
+      duration: 260,
+      ease: "Cubic.easeOut",
     });
   }
 
@@ -1446,24 +1535,30 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (!gameState.canUseAbility(attempt.cost)) {
-      gameState.setNotice("Statement denied. Not enough Compute Rate Limit or Compute Credits.");
+    const played = playAttackCard(this.computeCycle, "melee", {
+      computeCurrent: gameState.computeCurrent,
+      allotmentCurrent: gameState.allotmentCurrent,
+    });
+    if (!played.played || !played.card) {
+      this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
       return;
     }
 
-    const played = playAttackCard(this.computeCycle, "melee");
-    if (!played.played) {
+    const cardDefinition = getAttackCardDefinition(played.card.id);
+    const cardCost = cardDefinition?.cost ?? attempt.cost;
+    if (!gameState.canUseAbility(cardCost)) {
+      this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
       return;
     }
 
-    if (!gameState.spend(attempt.cost)) {
+    if (!gameState.spend(cardCost)) {
       gameState.setNotice("Statement impulse denied. Not enough Compute remains.");
       return;
     }
 
     this.animatePlayedCard("melee");
     this.computeCycle = played.state;
-    this.completeAbilityAttempt("melee", attempt);
+    this.completeAbilityAttempt("melee", attempt, cardDefinition?.cooldownMs);
     const aimVector = new Phaser.Math.Vector2(targetX - this.player.x, targetY - this.player.y);
     this.playerFacing = this.directionFromVector(
       aimVector,
@@ -1503,9 +1598,24 @@ export class ArenaScene extends Phaser.Scene {
       const forwardReach = offset.dot(new Phaser.Math.Vector2(Math.cos(swingAngle), Math.sin(swingAngle)));
 
       if (distance <= ArenaScene.meleeRange && forwardReach > -18 && delta <= 1.08) {
-        this.hitDrone(drone, MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration);
+        this.hitDrone(drone, cardDefinition?.damage ?? MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration);
       }
     });
+
+    if (played.card.id === "trim") {
+      const drawn = drawBonusAttackCard(this.computeCycle);
+      this.computeCycle = drawn.state;
+      const drawnQueueIndex = drawn.card
+        ? this.computeCycle.queues[drawn.card.type].length - 1
+        : -1;
+      this.updateAttackQueueHud();
+      if (drawn.shuffled) {
+        this.animateShufflePile();
+      }
+      if (drawn.drew && drawn.card) {
+        this.animateDealtAttackCard(drawn.card.type, drawnQueueIndex);
+      }
+    }
   }
 
   private angleForDirection(direction: SpriteDirection): number {
@@ -1543,24 +1653,38 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (!gameState.canUseAbility(attempt.cost)) {
-      gameState.setNotice("Function denied. Not enough Compute Rate Limit or Compute Credits.");
+    const played = playAttackCard(this.computeCycle, "ranged", {
+      computeCurrent: gameState.computeCurrent,
+      allotmentCurrent: gameState.allotmentCurrent,
+    });
+    if (!played.played || !played.card) {
+      this.setAttackCardRejectionNotice("Function", played.rejectionReason);
       return;
     }
 
-    const played = playAttackCard(this.computeCycle, "ranged");
-    if (!played.played) {
+    const cardDefinition = getAttackCardDefinition(played.card.id);
+    const cardCost = cardDefinition?.cost ?? attempt.cost;
+    if (!gameState.canUseAbility(cardCost)) {
+      this.setAttackCardRejectionNotice("Function", played.rejectionReason);
       return;
     }
 
-    if (!gameState.spend(attempt.cost)) {
+    if (!gameState.spend(cardCost)) {
       gameState.setNotice("Function cast rejected. Not enough Compute remains.");
       return;
     }
 
     this.animatePlayedCard("ranged");
     this.computeCycle = played.state;
-    this.completeAbilityAttempt("ranged", attempt);
+    this.completeAbilityAttempt("ranged", attempt, cardDefinition?.cooldownMs);
+    if (played.card.id === "refund") {
+      const restored = gameState.restoreComputeResources(40);
+      this.createRefundVisual(restored.computeRateLimit, restored.computeCredits);
+      gameState.setNotice(formatRefundFeedback(restored));
+      this.updateAttackQueueHud();
+      return;
+    }
+
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
     this.velocity.set(0, 0);
     this.player.setVelocity(0, 0);
@@ -1589,6 +1713,44 @@ export class ArenaScene extends Phaser.Scene {
       ttl: 1.2,
     });
 
+  }
+
+  private createRefundVisual(computeRateLimit: number, computeCredits: number): void {
+    const pulse = this.trackTransientVisual(this.add.circle(this.player.x, this.player.y - 16, 34, 0x60ffd3, 0.08));
+    pulse.setStrokeStyle(2, 0x60ffd3, 0.7);
+    pulse.setDepth(this.player.y + 34);
+
+    const label = this.trackTransientVisual(this.add.text(
+      this.player.x,
+      this.player.y - 62,
+      `+${computeRateLimit} RL  +${computeCredits} CC`,
+      {
+        fontFamily: "Azeret Mono, monospace",
+        fontSize: "12px",
+        color: "#c9fff0",
+        stroke: "#071015",
+        strokeThickness: 4,
+      },
+    ));
+    label.setOrigin(0.5);
+    label.setDepth(this.player.y + 36);
+
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      scale: { from: 1, to: 1.35 },
+      duration: 320,
+      ease: "Sine.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
+    this.tweens.add({
+      targets: label,
+      alpha: 0,
+      y: label.y - 20,
+      duration: 560,
+      ease: "Sine.easeOut",
+      onComplete: () => label.destroy(),
+    });
   }
 
   private hitDrone(
@@ -2504,10 +2666,12 @@ export class ArenaScene extends Phaser.Scene {
     this.destroyAllDrones();
 
     this.arenaCleared = snapshot.arenaCleared;
-    this.computeCycle = snapshot.computeCycle ?? startActiveWindow(createStarterComputeCycle(this.timelineTimeMs + gameState.runId), gameState.computeMax);
-    if (snapshot.computeCycle) {
-      this.computeCycle = { ...this.computeCycle, computeRefill: gameState.computeMax };
-    }
+    this.computeCycle = createArenaComputeCycle({
+      currentDraftDeck: {},
+      resumeCycle: snapshot.computeCycle,
+      seed: this.timelineTimeMs + gameState.runId,
+      computeRefill: gameState.computeMax,
+    });
     this.velocity.set(snapshot.player.velocity.x, snapshot.player.velocity.y);
     this.dashDirection.set(snapshot.player.dashDirection.x, snapshot.player.dashDirection.y);
     this.playerFacing = snapshot.player.facing;

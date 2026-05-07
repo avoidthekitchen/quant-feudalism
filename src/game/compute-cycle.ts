@@ -1,8 +1,12 @@
-export type AttackCardType = "melee" | "ranged";
+import { createAttackCard, getAttackCardDefinition, type CardId, type CardType } from "./card-catalog.ts";
+import type { DraftDeck } from "./deck.ts";
+
+export type AttackCardType = CardType;
 export type ComputeCyclePhase = "active" | "preparing";
 
 export interface AttackCard {
-  id: string;
+  id: CardId;
+  name: string;
   type: AttackCardType;
 }
 
@@ -31,6 +35,13 @@ export interface ActiveWindowEndCheck {
   attackCommitted: boolean;
 }
 
+export interface AttackCardAffordability {
+  computeCurrent: number;
+  allotmentCurrent: number;
+}
+
+export type AttackCardRejectionReason = "rate-limit" | "credits" | "compute";
+
 const STARTER_MELEE_COUNT = 15;
 const STARTER_RANGED_COUNT = 5;
 export const STARTER_DECK_SIZE = STARTER_MELEE_COUNT + STARTER_RANGED_COUNT;
@@ -38,16 +49,22 @@ export const DEFAULT_QUEUE_LIMIT = 7;
 export const PREPARING_WINDOW_MS = 3_000;
 
 export function createStarterComputeCycle(seed = Date.now()): ComputeCycleState {
-  const deck: AttackCard[] = [
-    ...Array.from({ length: STARTER_MELEE_COUNT }, (_, index) => ({
-      id: `melee-${index + 1}`,
-      type: "melee" as const,
-    })),
-    ...Array.from({ length: STARTER_RANGED_COUNT }, (_, index) => ({
-      id: `ranged-${index + 1}`,
-      type: "ranged" as const,
-    })),
-  ];
+  return createComputeCycleFromDeck({
+    slash: STARTER_MELEE_COUNT,
+    bolt: STARTER_RANGED_COUNT,
+  }, seed);
+}
+
+export function createComputeCycleFromDeck(deckCounts: DraftDeck, seed = Date.now()): ComputeCycleState {
+  const deck: AttackCard[] = Object.entries(deckCounts).flatMap(([id, count]) => {
+    const definition = getAttackCardDefinition(id);
+    const safeCount = Math.max(0, Math.floor(count ?? 0));
+    if (!definition || safeCount <= 0) {
+      return [];
+    }
+
+    return Array.from({ length: safeCount }, () => createAttackCard(definition.id));
+  });
 
   return {
     phase: "active",
@@ -64,6 +81,27 @@ export function createStarterComputeCycle(seed = Date.now()): ComputeCycleState 
   };
 }
 
+export function createArenaComputeCycle({
+  currentDraftDeck,
+  resumeCycle,
+  seed = Date.now(),
+  computeRefill,
+}: {
+  currentDraftDeck: DraftDeck;
+  resumeCycle?: ComputeCycleState;
+  seed?: number;
+  computeRefill: number;
+}): ComputeCycleState {
+  if (resumeCycle) {
+    return cloneComputeCycleState({
+      ...resumeCycle,
+      computeRefill,
+    });
+  }
+
+  return startActiveWindow(createComputeCycleFromDeck(currentDraftDeck, seed), computeRefill);
+}
+
 export function startActiveWindow(state: ComputeCycleState, computeRefill: number): ComputeCycleState {
   const next = cloneComputeCycleState({
     ...state,
@@ -78,19 +116,55 @@ export function startActiveWindow(state: ComputeCycleState, computeRefill: numbe
 export function playAttackCard(
   state: ComputeCycleState,
   type: AttackCardType,
-): { played: boolean; state: ComputeCycleState; card?: AttackCard } {
+  affordability?: AttackCardAffordability,
+): { played: boolean; state: ComputeCycleState; card?: AttackCard; rejectionReason?: AttackCardRejectionReason } {
   const next = cloneComputeCycleState(state);
   if (next.phase !== "active") {
     return { played: false, state: next };
   }
 
-  const card = next.queues[type].shift();
+  const cardIndex = next.queues[type].findIndex((card) => isAttackCardAffordable(card, affordability));
+  if (cardIndex < 0) {
+    return {
+      played: false,
+      state: next,
+      rejectionReason: getQueueRejectionReason(next.queues[type], affordability),
+    };
+  }
+
+  const [card] = next.queues[type].splice(cardIndex, 1);
   if (!card) {
     return { played: false, state: next };
   }
 
   next.discardPile.push(card);
   return { played: true, state: next, card };
+}
+
+export function drawBonusAttackCard(
+  state: ComputeCycleState,
+): { state: ComputeCycleState; drew: boolean; shuffled: boolean; card?: AttackCard } {
+  const next = cloneComputeCycleState(state);
+  let shuffled = false;
+
+  if (next.drawPile.length === 0 && next.discardPile.length > 0) {
+    next.drawPile = shuffleCards(next.discardPile, next.seed);
+    next.discardPile = [];
+    next.seed = nextSeed(next.seed);
+    shuffled = true;
+  }
+
+  const card = next.drawPile.shift();
+  if (!card) {
+    return { state: next, drew: false, shuffled };
+  }
+
+  next.queues[card.type].push(card);
+  return { state: next, drew: true, shuffled, card };
+}
+
+export function getAttackCardDisplayName(card: Pick<AttackCard, "id" | "name">): string {
+  return card.name || card.id;
 }
 
 export function endActiveWindow(state: ComputeCycleState): ComputeCycleState {
@@ -180,16 +254,53 @@ function canEventuallyPlay(
   check: ActiveWindowEndCheck,
   type: AttackCardType,
 ): boolean {
-  if (state.queues[type].length <= 0) {
-    return false;
-  }
-
-  const cost = type === "melee" ? check.meleeCost : check.rangedCost;
-  if (check.computeCurrent < cost || check.allotmentCurrent < cost) {
+  const hasAffordableQueuedCard = state.queues[type].some((card) =>
+    isAttackCardAffordable(card, {
+      computeCurrent: check.computeCurrent,
+      allotmentCurrent: check.allotmentCurrent,
+    })
+  );
+  if (!hasAffordableQueuedCard) {
     return false;
   }
 
   return check.cooldowns[type] >= 0;
+}
+
+export function isAttackCardAffordable(card: AttackCard, affordability?: AttackCardAffordability): boolean {
+  if (!affordability) {
+    return true;
+  }
+
+  const cost = getAttackCardDefinition(card.id)?.cost ?? Number.POSITIVE_INFINITY;
+  return affordability.computeCurrent >= cost && affordability.allotmentCurrent >= cost;
+}
+
+function getQueueRejectionReason(
+  cards: AttackCard[],
+  affordability?: AttackCardAffordability,
+): AttackCardRejectionReason | undefined {
+  if (!affordability || cards.length <= 0) {
+    return undefined;
+  }
+
+  const costs = cards.map((card) => getAttackCardDefinition(card.id)?.cost ?? Number.POSITIVE_INFINITY);
+  const lacksRateLimit = costs.every((cost) => affordability.computeCurrent < cost);
+  const lacksCredits = costs.every((cost) => affordability.allotmentCurrent < cost);
+
+  if (lacksRateLimit && lacksCredits) {
+    return "compute";
+  }
+
+  if (lacksRateLimit) {
+    return "rate-limit";
+  }
+
+  if (lacksCredits) {
+    return "credits";
+  }
+
+  return "compute";
 }
 
 function cloneCard(card: AttackCard): AttackCard {

@@ -424,7 +424,9 @@ h1 {
   right: 24px;
   z-index: 2;
   width: min(318px, calc(100% - 48px));
+  max-height: calc(100% - 152px);
   margin: 0;
+  overflow: auto;
   background: rgba(8, 17, 25, 0.9);
 }
 
@@ -435,6 +437,189 @@ h1 {
 .shop-access-actions {
   display: grid;
   gap: 10px;
+}
+
+.deck-access-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(96, 255, 211, 0.14);
+  background: rgba(7, 14, 21, 0.64);
+}
+
+.deck-access-summary span,
+.deck-access-summary em {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.deck-access-summary strong {
+  color: #ffcf66;
+  font-size: 0.78rem;
+}
+
+.deck-access-summary em {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-style: normal;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.deck-access-summary em.invalid {
+  color: #ff9bbf;
+}
+
+.deck-builder {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(96, 255, 211, 0.16);
+  background: rgba(7, 14, 21, 0.72);
+}
+
+.deck-builder-head,
+.deck-card-title,
+.deck-card-controls {
+  display: flex;
+  align-items: center;
+}
+
+.deck-builder-head,
+.deck-builder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.deck-builder-head span,
+.deck-validation-note,
+.deck-card-details {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.deck-builder-head strong {
+  color: #ffcf66;
+  font-size: 0.78rem;
+}
+
+.deck-validation-note {
+  min-height: 2.6em;
+  margin: 0;
+  line-height: 1.3;
+  color: #9fffea;
+  text-transform: none;
+}
+
+.deck-validation-note.invalid {
+  color: #ff9bbf;
+}
+
+.deck-builder-list {
+  display: grid;
+  gap: 6px;
+  max-height: min(398px, 48vh);
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.deck-builder-row {
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid rgba(159, 255, 234, 0.12);
+  background: rgba(11, 23, 32, 0.82);
+}
+
+.deck-builder-row.unavailable {
+  opacity: 0.62;
+  border-color: rgba(255, 155, 191, 0.24);
+}
+
+.deck-card-meta {
+  min-width: 0;
+}
+
+.deck-card-title {
+  gap: 7px;
+  min-width: 0;
+}
+
+.deck-card-title strong {
+  overflow: hidden;
+  color: #f5fff7;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-card-marker {
+  width: 1em;
+  color: #ff9bbf;
+  font-weight: 800;
+  text-align: center;
+}
+
+.deck-card-details {
+  display: -webkit-box;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.deck-card-controls {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.deck-count-button,
+.deck-reset-button {
+  appearance: none;
+  border: 1px solid rgba(96, 255, 211, 0.2);
+  background: rgba(13, 31, 42, 0.96);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.deck-count-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  text-align: center;
+}
+
+.deck-card-count {
+  width: 2.2ch;
+  color: #ffcf66;
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.deck-reset-button {
+  padding: 8px 10px;
+  color: #f5fff7;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deck-count-button:disabled,
+.deck-reset-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
 }
 
 .shop-panel {
@@ -482,6 +667,10 @@ h1 {
 
 .run-summary-panel {
   width: min(460px, calc(100% - 40px));
+}
+
+.workshop-panel {
+  width: min(760px, calc(100% - 40px));
 }
 
 .run-summary-backdrop {
@@ -544,13 +733,23 @@ h1 {
 }
 
 .bundle-grid,
-.shop-actions {
+.shop-actions,
+.workshop-grid {
   display: grid;
   gap: 12px;
 }
 
 .shop-actions {
   padding-top: 2px;
+}
+
+.workshop-grid {
+  grid-template-columns: minmax(180px, 0.82fr) minmax(280px, 1.18fr);
+  align-items: start;
+}
+
+.workshop-service-actions {
+  padding-top: 0;
 }
 
 .shop-button,
@@ -763,6 +962,14 @@ h1 {
   .shop-panel {
     width: min(420px, calc(100% - 20px));
     max-height: calc(100% - 20px);
+  }
+
+  .workshop-panel {
+    width: min(560px, calc(100% - 20px));
+  }
+
+  .workshop-grid {
+    grid-template-columns: 1fr;
   }
 
   .game-root > .shop-access-panel {

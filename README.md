@@ -129,20 +129,29 @@ Press `Space` to dash.
 - Invulnerability: `240ms`.
 - During dash invulnerability, bug bodies do not block the player, so the dash can pass through bugs.
 
-## Statement
+## Attack Cards
 
-Left click to play one Statement Attack Card from the Statement Attack Queue toward the pointer.
+Attack Cards are named card designs in one of two Card Type lanes:
+
+- Statement cards are played with `Left Click`.
+- Function cards are played with `Right Click`.
+- Basic cards have no per-card copy limit in the Deck Builder.
+- Special cards are limited to `10` copies per card.
+
+### Slash
+
+Slash is the Basic Statement card and the named version of the existing close-range attack.
 
 - Cost: `18` Compute.
 - Cooldown: `350ms`.
 - Damage: `24`.
 - Reach: `166 px` in a forward arc.
 - Stun: `280ms`.
-- Statement commits the player to a short `130ms` attack animation lock, keeping close attacks agile.
+- Slash commits the player to a short `130ms` attack animation lock, keeping close attacks agile.
 
-## Function
+### Bolt
 
-Right click to play one Function Attack Card from the Function Attack Queue toward the pointer.
+Bolt is the Basic Function card and the named version of the existing projectile attack.
 
 - Cost: `40` Compute.
 - Cooldown: `820ms`.
@@ -150,24 +159,63 @@ Right click to play one Function Attack Card from the Function Attack Queue towa
 - Projectile speed: `490 px/s`.
 - Projectile lifetime: `1.2s`.
 - Firing causes a `320ms` movement pause and a longer `280ms` attack animation, so Function attacks require deliberate commitment instead of being fully mobile.
-- On direct hit, the bolt creates a `112 px` pull splash that drags nearby bugs inward without dealing extra damage or stun.
+- On direct hit, Bolt creates a `112 px` pull splash that drags nearby bugs inward without dealing extra damage or stun.
 - Each bug affected by that splash refunds `6` Compute Credits, up to `18` per shot.
 - The siphon refund restores `Compute Credits` only. It does not restore `Compute Rate Limit` and does not change the current Cycle.
 
+### Trim
+
+Trim is a Special Statement card that trades Slash's damage efficiency for extra card flow.
+
+- Cost: `18` Compute.
+- Cooldown: `350ms`.
+- Damage: `12`.
+- Reach, stun, and animation lock match Slash.
+- After its attack resolves, Trim draws exactly `1` additional Attack Card with the normal draw/deal presentation.
+- Trim can draw even when the Attack Queues are already at the Queue Limit.
+- If Cycle End happens after Trim resolves, the freshly drawn card is discarded with the rest of the queued cards.
+
+### Refund
+
+Refund is a Special Function card that restores limited compute resources without firing a projectile.
+
+- Cost: `0` Compute.
+- Cooldown: `1000ms`.
+- Damage: `0`.
+- Refund resolves as an immediate self-effect.
+- It restores up to `40` Compute Rate Limit, capped by the normal Compute Rate Limit maximum.
+- It restores up to `40` Compute Credits, capped by the normal Compute Credit maximum.
+- Feedback reports the actual restored amounts after caps are applied.
+- Refund can be played when both compute pools are already full; it restores `0`, moves to discard, and starts Function cooldown.
+
+## Deck Builder
+
+Between arena deployments, the shop and operations screen includes a Deck Builder for the run's current Deck.
+
+- A Deck is stored as `CardId -> count`, not individual card instances.
+- New runs start with the Starter Deck: `15` Slash and `5` Bolt.
+- Slash, Bolt, Trim, and Refund are available from the start of every run.
+- A valid Deck contains `20` to `100` total Attack Cards.
+- The player can temporarily edit below `20`, but Deploy is disabled with explanatory messaging until the Deck is valid.
+- Missing or unavailable card references stay visible as dimmed rows with an X and block deployment until removed.
+- Reset to Starter Deck restores `15` Slash and `5` Bolt and removes unavailable entries.
+
 ## Cycles
 
-Each arena deployment starts with a freshly shuffled Starter Deck of `20` Attack Cards:
+Each arena deployment starts with a freshly shuffled copy of the player's current Deck. New runs begin with the Starter Deck:
 
-- `15` Statement cards.
-- `5` Function cards.
+- `15` Slash cards.
+- `5` Bolt cards.
 
 The arena runs through repeating Cycles:
 
 - An Active Window refills Compute Rate Limit and draws until the Statement and Function Attack Queues contain `7` total cards.
-- The lower-center arena HUD shows the Statement and Function Attack Queues, draw pile count, and discard pile count.
+- The lower-center arena HUD shows the Statement and Function Attack Queues, named queued cards, draw pile count, and discard pile count.
+- Cards that cannot be afforded with current Compute Rate Limit or Compute Credits use the dimmed unavailable-card treatment.
+- Playing a Statement or Function uses the leftmost currently affordable card in that lane; unaffordable cards earlier in the lane remain queued.
 - Played Attack Cards go to discard immediately.
 - Press `E` during the Active Window to discard the remaining queued cards and end the cycle early.
-- The Active Window also ends automatically after committed attacks resolve when no queued Attack Card can be afforded with current resources.
+- The Active Window also ends automatically after committed attacks resolve when no queued Attack Card can be afforded now or after normal lane cooldown clears.
 - Cycle End discards remaining queued Attack Cards and starts a `3s` Preparing Window.
 - During Preparing, attacks are unavailable, movement is slowed to `60%`, Dash remains free and available, and bugs behave normally.
 - When Preparing completes, the next Active Window refills Compute Rate Limit and draws back to the queue limit.

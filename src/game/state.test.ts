@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createStarterDeck } from "./deck.ts";
 import { getScaledShopBundleCost } from "./constants.ts";
-import { createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
+import { createComputeCycleFromDeck, createStarterComputeCycle, startActiveWindow } from "./compute-cycle.ts";
 import { RunState } from "./state.ts";
 
-function makeResumeSnapshot() {
+function makeResumeSnapshot(
+  computeCycle = startActiveWindow(createStarterComputeCycle(11), 96),
+) {
   return {
     timelineTimeMs: 2_450,
     snapshot: {
@@ -17,7 +20,7 @@ function makeResumeSnapshot() {
         notice: "Checkpoint restored.",
         arenaPrompt: "Resume fight.",
       },
-      computeCycle: startActiveWindow(createStarterComputeCycle(11), 96),
+      computeCycle,
       player: {
         position: { x: 120, y: 240 },
         velocity: { x: 8, y: -3 },
@@ -79,6 +82,38 @@ test("refundAllotment clamps to max compute credits without restoring rate limit
   assert.equal(refunded, 5);
   assert.equal(state.allotmentCurrent, state.allotmentMax);
   assert.equal(state.computeCurrent, 12);
+});
+
+test("Refund restores actual capped Compute Rate Limit and Compute Credits", () => {
+  const state = new RunState();
+  state.beginArena();
+  state.computeCurrent = state.computeMax - 12;
+  state.allotmentCurrent = state.allotmentMax - 5;
+
+  const restored = state.restoreComputeResources(40);
+
+  assert.deepEqual(restored, {
+    computeRateLimit: 12,
+    computeCredits: 5,
+  });
+  assert.equal(state.computeCurrent, state.computeMax);
+  assert.equal(state.allotmentCurrent, state.allotmentMax);
+});
+
+test("Refund reports zero restored resources when both compute pools are full", () => {
+  const state = new RunState();
+  state.beginArena();
+  state.computeCurrent = state.computeMax;
+  state.allotmentCurrent = state.allotmentMax;
+
+  const restored = state.restoreComputeResources(40);
+
+  assert.deepEqual(restored, {
+    computeRateLimit: 0,
+    computeCredits: 0,
+  });
+  assert.equal(state.computeCurrent, state.computeMax);
+  assert.equal(state.allotmentCurrent, state.allotmentMax);
 });
 
 test("spend refuses unaffordable card costs without creating compute debt", () => {
@@ -151,6 +186,52 @@ test("new arena deployments discard stale resume checkpoints", () => {
   state.beginArena();
 
   assert.equal(state.getSavedArenaResume(), null);
+});
+
+test("Draft Deck edits persist through serialization", () => {
+  const source = new RunState();
+  assert.equal(source.incrementDraftCard("bolt", 3), true);
+  assert.equal(source.decrementDraftCard("slash", 5), true);
+
+  const restored = new RunState();
+  restored.hydrate(source.serialize());
+
+  assert.deepEqual(restored.getDraftDeck(), { slash: 10, bolt: 8 });
+});
+
+test("invalid Draft Decks block arena deployment with the deck validation message", () => {
+  const state = new RunState();
+  assert.equal(state.decrementDraftCard("slash", 1), true);
+
+  const deployed = state.beginArena();
+
+  assert.equal(deployed, false);
+  assert.equal(state.sceneMode, "shop");
+  assert.equal(state.tryGetDeployableDeck(), null);
+  assert.equal(state.getDraftDeckValidation().message, "Add 1 more card to reach the 20-card minimum.");
+  assert.equal(state.notice, "Add 1 more card to reach the 20-card minimum.");
+});
+
+test("resetting a new run restores the Starter Deck", () => {
+  const state = new RunState();
+  state.incrementDraftCard("bolt", 10);
+  state.endRun("manual");
+
+  state.startNewRun();
+
+  assert.deepEqual(state.getDraftDeck(), createStarterDeck());
+});
+
+test("Draft Deck reset confirmation is only needed when edits would be lost", () => {
+  const state = new RunState();
+
+  assert.equal(state.hasDraftDeckEdits(), false);
+
+  state.incrementDraftCard("trim", 1);
+  assert.equal(state.hasDraftDeckEdits(), true);
+
+  state.resetDraftDeckToStarter();
+  assert.equal(state.hasDraftDeckEdits(), false);
 });
 
 test("player starts with one quantum tuner charge", () => {
@@ -443,6 +524,47 @@ test("hydrate restores interrupted arena saves with checkpoint state preserved",
   assert.equal(restored.kills, 2);
   assert.equal(restored.extractionReady, true);
   assert.equal(restored.getSavedArenaResume()?.snapshot.computeCycle.queues.melee.length, makeResumeSnapshot().snapshot.computeCycle.queues.melee.length);
+});
+
+test("hydrate restores named-card arena snapshots while preserving an invalid shop Draft Deck", () => {
+  const savedCycle = {
+    ...startActiveWindow(createComputeCycleFromDeck({ slash: 17, bolt: 1, trim: 1, refund: 1 }, 31), 96),
+    queues: {
+      melee: [
+        { id: "trim", name: "Trim", type: "melee" as const },
+        { id: "slash", name: "Slash", type: "melee" as const },
+      ],
+      ranged: [
+        { id: "refund", name: "Refund", type: "ranged" as const },
+        { id: "bolt", name: "Bolt", type: "ranged" as const },
+      ],
+    },
+  };
+  const source = new RunState();
+  source.beginArena();
+  source.saveArenaResume(makeResumeSnapshot(savedCycle));
+  const persisted = {
+    ...source.serialize(),
+    draftDeck: { slash: 19, retired: 2, refund: 11 },
+  };
+
+  const restored = new RunState();
+  restored.hydrate(persisted);
+
+  assert.equal(restored.sceneMode, "arena");
+  assert.deepEqual(restored.getDraftDeck(), { slash: 19, retired: 2, refund: 11 });
+  assert.equal(
+    restored.getDraftDeckValidation().message,
+    "Deck contains unavailable cards. Remove them to deploy.",
+  );
+  assert.deepEqual(
+    restored.getSavedArenaResume()?.snapshot.computeCycle.queues.melee.map((card) => card.id),
+    ["trim", "slash"],
+  );
+  assert.deepEqual(
+    restored.getSavedArenaResume()?.snapshot.computeCycle.queues.ranged.map((card) => card.id),
+    ["refund", "bolt"],
+  );
 });
 
 test("hydrate accepts legacy arena resume data with missing extraction flag", () => {

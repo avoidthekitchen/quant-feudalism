@@ -1,0 +1,3 @@
+# Between-Deployment Deck Building
+
+Quant Feudalism will add deck construction to the existing shop and operations flow between arena deployments, replacing the fixed Starter Deck as the only playable deck source after a run begins. The Deck Builder lives in the Workshop modal so the Operations Access panel can stay focused on deployment and shop routing while still showing Draft Deck readiness. The first version keeps card acquisition out of scope: Slash, Bolt, Trim, and Refund are available from the start, Basic cards have no copy limit, and Special cards are capped at 10 copies each. This lets the prototype test deck composition and named card behavior without committing to reward drafting, unlock progression, or individual card instances.
