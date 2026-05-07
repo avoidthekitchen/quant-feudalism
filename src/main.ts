@@ -174,11 +174,17 @@ function setSplashVisible(visible: boolean): void {
 function setPauseMenuOpen(open: boolean): void {
   pauseMenuOpen = open;
   pauseMenu?.classList.toggle("open", open);
-  if (gameState.sceneMode === "arena") {
-    if (open) {
+  if (open) {
+    if (gameState.sceneMode === "arena") {
       game.scene.pause(SCENES.arena);
-    } else {
+    } else if (gameState.sceneMode === "shop") {
+      game.scene.pause(SCENES.shop);
+    }
+  } else {
+    if (gameState.sceneMode === "arena") {
       game.scene.resume(SCENES.arena);
+    } else if (gameState.sceneMode === "shop") {
+      game.scene.resume(SCENES.shop);
     }
   }
 }
@@ -410,7 +416,12 @@ function renderHud(): void {
     !integrityLabel ||
     !creditsLabel ||
     !killsLabel ||
-    !roundsLabel
+    !roundsLabel ||
+    !shopAllotmentLabel ||
+    !shopMarketAllotmentLabel ||
+    !shopMarketAllotmentFill ||
+    !workshopIntegrityLabel ||
+    !workshopIntegrityFill
   ) {
     return;
   }
@@ -467,16 +478,16 @@ function renderHud(): void {
   computeLabel.textContent = `${numberLabel(gameState.computeCurrent)}/${gameState.computeMax}`;
   allotmentLabel.textContent = `${numberLabel(gameState.allotmentCurrent)}/${gameState.allotmentMax}`;
   creditsLabel!.textContent = gameState.credits.toString();
-  shopAllotmentLabel!.textContent = `${numberLabel(gameState.allotmentCurrent)}/${gameState.allotmentMax}`;
-  shopMarketAllotmentLabel!.textContent = `${numberLabel(gameState.allotmentCurrent)}/${gameState.allotmentMax}`;
-  shopMarketAllotmentFill!.style.width = `${allotmentRatio * 100}%`;
-  shopMarketAllotmentFill!.style.filter =
+  shopAllotmentLabel.textContent = `${numberLabel(gameState.allotmentCurrent)}/${gameState.allotmentMax}`;
+  shopMarketAllotmentLabel.textContent = `${numberLabel(gameState.allotmentCurrent)}/${gameState.allotmentMax}`;
+  shopMarketAllotmentFill.style.width = `${allotmentRatio * 100}%`;
+  shopMarketAllotmentFill.style.filter =
     gameState.allotmentCurrent <= 0 ? "grayscale(0.6)" : "";
-  workshopIntegrityLabel!.textContent = `${numberLabel(gameState.integrityCurrent)}/${gameState.integrityMax}`;
-  workshopIntegrityFill!.style.width = `${integrityRatio * 100}%`;
-  workshopIntegrityFill!.style.filter =
+  workshopIntegrityLabel.textContent = `${numberLabel(gameState.integrityCurrent)}/${gameState.integrityMax}`;
+  workshopIntegrityFill.style.width = `${integrityRatio * 100}%`;
+  workshopIntegrityFill.style.filter =
     integrityRatio <= 0.3 ? "brightness(0.9) saturate(1.2)" : "";
-  integrityLabel!.textContent = `${Math.round(gameState.integrityCurrent)} / ${gameState.integrityMax}`;
+  integrityLabel!.textContent = `${Math.round(gameState.integrityCurrent)}/${gameState.integrityMax}`;
   killsLabel!.textContent = gameState.getCurrentRunKills().toString();
   roundsLabel!.textContent = gameState.roundsFinished.toString();
   renderScoreboard();

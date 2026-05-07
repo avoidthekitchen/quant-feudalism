@@ -224,7 +224,21 @@ export class ShopScene extends Phaser.Scene {
       new Phaser.Geom.Circle(0, 0, radius),
       Phaser.Geom.Circle.Contains,
     );
-    ring.on("pointerdown", () => this.triggerStation(station));
+    ring.on("pointerdown", () => {
+      if (!this.player) {
+        return;
+      }
+
+      const distance = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        station.position.x,
+        station.position.y,
+      );
+      if (distance <= station.radius) {
+        this.triggerStation(station);
+      }
+    });
     ring.on("pointerover", () => ring.setFillStyle(color, 0.08));
     ring.on("pointerout", () => ring.setFillStyle(color, 0.035));
 
