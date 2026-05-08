@@ -5,6 +5,11 @@ import {
   calculateRangedSiphonRefund,
   getCooldownProgress,
   MELEE_DAMAGE,
+  HOPPER_CHARGED_SHOT_DAMAGE,
+  HOPPER_CHARGED_SHOT_HIT_RADIUS,
+  HOPPER_CHARGED_SHOT_SPEED,
+  HOPPER_HP,
+  HOPPER_TOUCH_DAMAGE,
   RANGED_DIRECT_DAMAGE,
   RANGED_PROJECTILE_SPEED,
   RANGED_PULL_RADIUS,
@@ -34,6 +39,14 @@ test("attack damage values preserve Statement tradeoffs and Function splash math
   assert.equal(MELEE_DAMAGE, 23);
   assert.equal(RANGED_DIRECT_DAMAGE, 40);
   assert.equal(RANGED_SPLASH_DAMAGE, 20);
+});
+
+test("Hopper combat defaults make it fragile but threatening at range", () => {
+  assert.equal(HOPPER_HP, 36);
+  assert.equal(HOPPER_TOUCH_DAMAGE, 10);
+  assert.equal(HOPPER_CHARGED_SHOT_DAMAGE, 18);
+  assert.equal(HOPPER_CHARGED_SHOT_SPEED, 350);
+  assert.equal(HOPPER_CHARGED_SHOT_HIT_RADIUS, 20);
 });
 
 test("cooldown progress reports readiness for the player-adjacent rings", () => {

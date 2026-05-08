@@ -14,6 +14,11 @@ export const RANGED_DIRECT_DAMAGE = 40;
 export const RANGED_SPLASH_DAMAGE = RANGED_DIRECT_DAMAGE / 2;
 export const RANGED_SIPHON_REFUND_PER_ENEMY = 6;
 export const RANGED_SIPHON_REFUND_CAP = 18;
+export const HOPPER_HP = 36;
+export const HOPPER_TOUCH_DAMAGE = 10;
+export const HOPPER_CHARGED_SHOT_DAMAGE = 18;
+export const HOPPER_CHARGED_SHOT_SPEED = 350;
+export const HOPPER_CHARGED_SHOT_HIT_RADIUS = 20;
 
 export function getCooldownProgress(cooldownMs: number, remainingMs: number): number {
   if (cooldownMs <= 0) {

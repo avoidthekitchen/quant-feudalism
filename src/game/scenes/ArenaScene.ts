@@ -4,6 +4,11 @@ import {
   ABILITY_COOLDOWNS_MS,
   calculateRangedSiphonRefund,
   getCooldownProgress,
+  HOPPER_CHARGED_SHOT_DAMAGE,
+  HOPPER_CHARGED_SHOT_HIT_RADIUS,
+  HOPPER_CHARGED_SHOT_SPEED,
+  HOPPER_HP,
+  HOPPER_TOUCH_DAMAGE,
   MELEE_DAMAGE,
   RANGED_DIRECT_DAMAGE,
   RANGED_PULL_FORCE,
@@ -32,10 +37,13 @@ import {
   type AttackCardType,
   type ComputeCycleState,
 } from "../compute-cycle";
+import { ArenaDiagnostics, type SubsystemLabel } from "../diagnostics";
+import { createEnemySpawnPlan, type EnemyType } from "../enemies";
 import { getAttackCardDefinition } from "../card-catalog";
 import {
   ACTOR_DISPLAY_SCALE,
   DRONE_SHEET_KEY,
+  HOPPER_SHEET_KEY,
   PLAYER_SHEET_KEY,
   SPRITE_ACTIONS,
   SPRITE_DIRECTIONS,
@@ -57,7 +65,8 @@ import {
    type PlayerArenaSnapshot,
    type ProjectileArenaSnapshot,
    type TimedArenaSnapshot,
- } from "../quantum-tuner";
+   type TrailPoint,
+  } from "../quantum-tuner";
 import { gameState, type ArenaOutcome } from "../state";
 
 type AbilityAction = CombatAbilityAction;
@@ -102,6 +111,7 @@ type CardPileView = {
 
 type EnemySpawnPoint = {
   id: number;
+  type: EnemyType;
   x: number;
   y: number;
   orbitSeed: number;
@@ -109,12 +119,17 @@ type EnemySpawnPoint = {
 
 type EnemyUnit = {
   id: number;
+  type: EnemyType;
   sprite: Phaser.Physics.Arcade.Sprite;
   shadow: Phaser.GameObjects.Image;
   playerCollider: Phaser.Physics.Arcade.Collider;
   wallCollider: Phaser.Physics.Arcade.Collider;
   lungeDirection: Phaser.Math.Vector2;
   lungeTelegraph?: Phaser.GameObjects.Rectangle;
+  hopperShotTelegraph?: Phaser.GameObjects.Rectangle;
+  hopperShotGlow?: Phaser.GameObjects.Arc;
+  hopDirection: Phaser.Math.Vector2;
+  lockedShotDirection: Phaser.Math.Vector2;
   hp: number;
   touchCooldown: number;
   attackTimer: number;
@@ -122,13 +137,23 @@ type EnemyUnit = {
   lungeCooldown: number;
   lungeWindupTimer: number;
   lungeTimer: number;
+  hopCooldown: number;
+  hopWindupTimer: number;
+  hopTimer: number;
+  hopDistance: number;
+  landingRecoveryTimer: number;
+  shotCooldown: number;
+  shotWindupTimer: number;
   orbitSeed: number;
 };
 
 type Projectile = {
+  type: "function" | "hopper-shot";
   sprite: Phaser.Physics.Arcade.Image;
   velocity: Phaser.Math.Vector2;
   ttl: number;
+  damage: number;
+  hitRadius: number;
 };
 
 type CollapsePlayback = {
@@ -177,6 +202,19 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly droneLungeDuration = 0.18;
   private static readonly droneLungeCooldown = 1.35;
   private static readonly droneLungeSpeed = 470;
+  private static readonly hopperPreferredMinRange = 250;
+  private static readonly hopperPreferredMaxRange = 350;
+  private static readonly hopperApproachRange = 400;
+  private static readonly hopperHopWindupDuration = 0.2;
+  private static readonly hopperHopDuration = 0.18;
+  private static readonly hopperLandingRecoveryDuration = 0.45;
+  private static readonly hopperHopCooldown = 0.8;
+  private static readonly hopperMinHopDistance = 150;
+  private static readonly hopperMaxHopDistance = 200;
+  private static readonly hopperWallMargin = 60;
+  private static readonly hopperShotWindupDuration = 0.55;
+  private static readonly hopperShotCooldown = 2.2;
+  private static readonly hopperTouchCooldown = 0.9;
   private static readonly enemySpawnPositions = [
     [540, 240],
     [710, 280],
@@ -262,6 +300,7 @@ export class ArenaScene extends Phaser.Scene {
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
+  private readonly diagnostics = new ArenaDiagnostics();
 
   constructor() {
     super(SCENES.arena);
@@ -404,6 +443,14 @@ export class ArenaScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,Q,E,SPACE") as ArenaScene["cursors"];
 
+    const diagKey = this.input.keyboard!.addKey("BACKTICK");
+    diagKey.on("down", () => {
+      const json = this.diagnostics.exportJson();
+      console.log("[quant-feudalism diagnostics]", json);
+      navigator.clipboard?.writeText(json).catch(() => {});
+      gameState.setNotice("Diagnostics exported to console and clipboard.");
+    });
+
     this.enemyCountLabel = this.add.text(24, 24, "", {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "16px",
@@ -434,13 +481,17 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    this.diagnostics.beginFrame();
+
     if (this.deathSequenceActive) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
     if (this.collapsePlayback) {
-      this.updateCollapsePlayback(delta);
-      this.updateQuantumTrail();
+      this.timeSubsystem("collapsePlayback", () => this.updateCollapsePlayback(delta));
+      this.timeSubsystem("quantumTrail", () => this.updateQuantumTrail());
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -451,12 +502,13 @@ export class ArenaScene extends Phaser.Scene {
     this.advanceAbilityCooldowns(delta);
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
-    this.advanceComputeCycleState(delta);
+    this.timeSubsystem("computeCycle", () => this.advanceComputeCycleState(delta));
 
     const pointer = this.input.activePointer;
     pointer.updateWorldPoint(this.cameras.main);
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.Q) && this.tryCollapse()) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -467,11 +519,15 @@ export class ArenaScene extends Phaser.Scene {
     this.updatePlayerMovement(dt, pointer);
     this.updatePlayerOrientation(pointer);
 
-    if (this.updateDrones(dt)) {
+    if (this.timeSubsystem("updateDrones", () => this.updateDrones(dt))) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
-    this.updateProjectiles(dt);
+    if (this.timeSubsystem("updateProjectiles", () => this.updateProjectiles(dt))) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
+      return;
+    }
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
@@ -484,6 +540,7 @@ export class ArenaScene extends Phaser.Scene {
         : "Emergency extraction granted. The corporations keep the unused fear.";
       gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note, this.arenaElapsedTimeMs);
       this.scene.start(SCENES.shop);
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -491,7 +548,7 @@ export class ArenaScene extends Phaser.Scene {
       this.arenaCleared = true;
       gameState.setExtractionReady(true);
       gameState.setNotice(
-        "All bugs decommissioned. Northern extraction gate now serves as your audit exit.",
+        "All enemies decommissioned. Northern extraction gate now serves as your audit exit.",
       );
       this.tweens.add({
         targets: this.extractionRing,
@@ -503,9 +560,10 @@ export class ArenaScene extends Phaser.Scene {
       });
     }
 
-    this.recordSnapshotIfDue();
-    this.updateQuantumTrail();
+    this.timeSubsystem("recordSnapshot", () => this.recordSnapshotIfDue());
+    this.timeSubsystem("quantumTrail", () => this.updateQuantumTrail());
     this.updateGhostReplay(delta);
+    this.diagnostics.endFrame(delta, this.diagnosticsContext());
   }
 
   private drawArenaFloor(): void {
@@ -654,13 +712,10 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private spawnEnemies(): void {
-    const enemyCount = Math.min(ArenaScene.enemySpawnPositions.length, 5 + gameState.roundsFinished);
-    this.enemySpawnPoints = ArenaScene.enemySpawnPositions.slice(0, enemyCount).map(([x, y], index) => ({
-      id: index,
-      x,
-      y,
-      orbitSeed: index * 0.6,
-    }));
+    this.enemySpawnPoints = createEnemySpawnPlan(
+      ArenaScene.enemySpawnPositions.map(([x, y]) => ({ x, y })),
+      gameState.roundsFinished,
+    );
 
     this.enemySpawnPoints.forEach((spawnPoint) => {
       this.drones.push(this.createDrone(this.initialEnemySnapshot(spawnPoint)));
@@ -670,9 +725,10 @@ export class ArenaScene extends Phaser.Scene {
   private registerActorAnimations(): void {
     this.registerAnimationSet("player", PLAYER_SHEET_KEY);
     this.registerAnimationSet("drone", DRONE_SHEET_KEY);
+    this.registerAnimationSet("hopper", HOPPER_SHEET_KEY);
   }
 
-  private registerAnimationSet(actor: "player" | "drone", sheetKey: string): void {
+  private registerAnimationSet(actor: "player" | "drone" | "hopper", sheetKey: string): void {
     SPRITE_DIRECTIONS.forEach((direction) => {
       (Object.entries(SPRITE_ACTIONS) as [SpriteAction, number][]).forEach(([action, count]) => {
         const key = spriteAnimationKey(actor, action, direction);
@@ -1691,9 +1747,12 @@ export class ArenaScene extends Phaser.Scene {
     sprite.setVelocity(velocity.x, velocity.y);
 
     this.projectiles.push({
+      type: "function",
       sprite,
       velocity,
       ttl: 1.2,
+      damage: RANGED_DIRECT_DAMAGE,
+      hitRadius: 24,
     });
 
   }
@@ -1749,13 +1808,19 @@ export class ArenaScene extends Phaser.Scene {
       Math.sin(angle) * force,
     );
 
-    if (stunDuration > 0) {
+    const shouldApplyStun = stunDuration > 0 && !(drone.type === "hopper" && drone.hopTimer > 0);
+
+    if (shouldApplyStun) {
       drone.stunTimer = Math.max(drone.stunTimer, stunDuration);
       drone.attackTimer = Math.max(drone.attackTimer, stunDuration);
       drone.lungeWindupTimer = 0;
       drone.lungeTimer = 0;
       drone.lungeCooldown = Math.max(drone.lungeCooldown, 0.45);
+      drone.hopWindupTimer = 0;
+      drone.shotWindupTimer = 0;
+      drone.shotCooldown = Math.max(drone.shotCooldown, 0.45);
       this.clearDroneLungeTelegraph(drone);
+      this.clearHopperShotTelegraph(drone);
     }
 
     this.tweens.add({
@@ -1930,6 +1995,13 @@ export class ArenaScene extends Phaser.Scene {
     for (const drone of this.drones) {
       drone.playerCollider.active = !this.isPlayerInvulnerable();
 
+      if (drone.type === "hopper") {
+        if (this.updateHopper(drone, dt)) {
+          return true;
+        }
+        continue;
+      }
+
       const toPlayer = new Phaser.Math.Vector2(this.player.x - drone.sprite.x, this.player.y - drone.sprite.y);
       const distance = toPlayer.length();
       const direction = distance > 0.001
@@ -2046,6 +2118,259 @@ export class ArenaScene extends Phaser.Scene {
     return false;
   }
 
+  private updateHopper(hopper: EnemyUnit, dt: number): boolean {
+    const body = hopper.sprite.body as Phaser.Physics.Arcade.Body;
+    const toPlayer = new Phaser.Math.Vector2(this.player.x - hopper.sprite.x, this.player.y - hopper.sprite.y);
+    const distance = toPlayer.length();
+    const directionToPlayer = distance > 0.001
+      ? toPlayer.clone().scale(1 / distance)
+      : new Phaser.Math.Vector2(1, 0);
+
+    if (hopper.stunTimer > 0) {
+      hopper.stunTimer = Math.max(0, hopper.stunTimer - dt);
+      hopper.hopWindupTimer = 0;
+      hopper.hopTimer = 0;
+      hopper.shotWindupTimer = 0;
+      this.clearHopperShotTelegraph(hopper);
+      body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.24);
+      body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.24);
+      hopper.sprite.setTint(0x60ffd3);
+    } else {
+      hopper.hopCooldown = Math.max(0, hopper.hopCooldown - dt);
+      hopper.shotCooldown = Math.max(0, hopper.shotCooldown - dt);
+      hopper.landingRecoveryTimer = Math.max(0, hopper.landingRecoveryTimer - dt);
+
+      if (hopper.shotWindupTimer > 0) {
+        hopper.shotWindupTimer = Math.max(0, hopper.shotWindupTimer - dt);
+        body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.2);
+        body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.2);
+        hopper.sprite.setTint(0xff6b35);
+        this.updateHopperShotTelegraph(hopper);
+
+        if (hopper.shotWindupTimer <= 0) {
+          this.fireHopperShot(hopper);
+          this.clearHopperShotTelegraph(hopper);
+          hopper.shotCooldown = ArenaScene.hopperShotCooldown;
+          hopper.attackTimer = 0.2;
+        }
+      } else if (hopper.hopWindupTimer > 0) {
+        hopper.hopWindupTimer = Math.max(0, hopper.hopWindupTimer - dt);
+        body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.2);
+        body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.2);
+        hopper.sprite.setTint(0xffcf66);
+        hopper.sprite.setScale(ACTOR_DISPLAY_SCALE * 1.04, ACTOR_DISPLAY_SCALE * 0.84);
+
+        if (hopper.hopWindupTimer <= 0) {
+          hopper.hopTimer = ArenaScene.hopperHopDuration;
+          hopper.hopCooldown = ArenaScene.hopperHopCooldown;
+          hopper.attackTimer = 0.18;
+        }
+      } else if (hopper.hopTimer > 0) {
+        hopper.hopTimer = Math.max(0, hopper.hopTimer - dt * ArenaScene.combatSpeedMultiplier);
+        const hopVelocity = hopper.hopDirection
+          .clone()
+          .scale(hopper.hopDistance ?? ArenaScene.hopperMaxHopDistance)
+          .scale(ArenaScene.combatSpeedMultiplier / ArenaScene.hopperHopDuration);
+        body.velocity.x = hopVelocity.x;
+        body.velocity.y = hopVelocity.y;
+        hopper.sprite.setTint(0xffd166);
+        hopper.sprite.setScale(ACTOR_DISPLAY_SCALE * 0.9, ACTOR_DISPLAY_SCALE * 1.12);
+
+        if (hopper.hopTimer <= 0) {
+          hopper.landingRecoveryTimer = ArenaScene.hopperLandingRecoveryDuration;
+        }
+      } else if (hopper.landingRecoveryTimer > 0) {
+        body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.16);
+        body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.16);
+        hopper.sprite.setTint(0xffffff);
+        hopper.sprite.setScale(ACTOR_DISPLAY_SCALE * 0.88);
+      } else if (distance < ArenaScene.hopperPreferredMinRange && hopper.hopCooldown <= 0) {
+        this.beginHopperHop(hopper, directionToPlayer.clone().negate());
+      } else if (
+        distance >= ArenaScene.hopperPreferredMinRange &&
+        distance <= ArenaScene.hopperPreferredMaxRange &&
+        hopper.shotCooldown <= 0
+      ) {
+        hopper.lockedShotDirection.copy(directionToPlayer);
+        hopper.shotWindupTimer = ArenaScene.hopperShotWindupDuration;
+        hopper.attackTimer = ArenaScene.hopperShotWindupDuration;
+        this.createHopperShotTelegraph(hopper);
+      } else if (hopper.hopCooldown <= 0) {
+        const baseDirection = distance > ArenaScene.hopperApproachRange
+          ? directionToPlayer
+          : new Phaser.Math.Vector2(-directionToPlayer.y, directionToPlayer.x).scale(
+              Math.sin(this.timelineTimeMs * 0.002 + hopper.orbitSeed) >= 0 ? 1 : -1,
+            );
+        this.beginHopperHop(hopper, baseDirection);
+      } else {
+        body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.08);
+        body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.08);
+        hopper.sprite.setTint(0xffc857);
+        hopper.sprite.setScale(ACTOR_DISPLAY_SCALE * 0.88);
+      }
+    }
+
+    if (hopper.touchCooldown > 0) {
+      hopper.touchCooldown = Math.max(0, hopper.touchCooldown - dt);
+    }
+    hopper.attackTimer = Math.max(0, hopper.attackTimer - dt);
+
+    if (
+      distance < 42 &&
+      hopper.touchCooldown <= 0 &&
+      hopper.stunTimer <= 0 &&
+      !this.isPlayerInvulnerable()
+    ) {
+      hopper.touchCooldown = ArenaScene.hopperTouchCooldown;
+      hopper.attackTimer = 0.2;
+      const died = gameState.applyDamage(HOPPER_TOUCH_DAMAGE);
+      this.cameras.main.shake(110, 0.0028);
+
+      if (died) {
+        if (this.tryCollapse()) {
+          return true;
+        }
+
+        this.beginDeathSequence(
+          "decommissioned",
+          "Integrity collapse. The corporations reclaimed your body from the arena floor.",
+        );
+        return true;
+      }
+    }
+
+    hopper.shadow.setPosition(hopper.sprite.x, hopper.sprite.y + 16);
+    hopper.shadow.setDepth(hopper.sprite.y - 12);
+    hopper.sprite.setDepth(hopper.sprite.y + 5);
+    hopper.sprite.setAngle(Math.sin(this.timelineTimeMs * 0.006 + hopper.orbitSeed) * 7);
+    const hopperDirection = this.directionFromVector(body.velocity, "s");
+    const hopperAction: SpriteAction = hopper.attackTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
+    hopper.sprite.play(spriteAnimationKey("hopper", hopperAction, hopperDirection), true);
+
+    return false;
+  }
+
+  private beginHopperHop(hopper: EnemyUnit, baseDirection: Phaser.Math.Vector2): void {
+    const direction = baseDirection.lengthSq() > 0.001
+      ? baseDirection.clone().normalize()
+      : new Phaser.Math.Vector2(1, 0);
+    const offset = Phaser.Math.FloatBetween(-0.34, 0.34);
+    direction.rotate(offset);
+    const distance = Phaser.Math.Between(ArenaScene.hopperMinHopDistance, ArenaScene.hopperMaxHopDistance);
+    const landingX = hopper.sprite.x + direction.x * distance;
+    const landingY = hopper.sprite.y + direction.y * distance;
+
+    if (
+      landingX < ArenaScene.hopperWallMargin ||
+      landingY < ArenaScene.hopperWallMargin ||
+      landingX > this.arenaWidth - ArenaScene.hopperWallMargin ||
+      landingY > this.arenaHeight - ArenaScene.hopperWallMargin
+    ) {
+      const escape = this.chooseHopperEscapeDirection(hopper, direction);
+      direction.copy(escape);
+    }
+
+    hopper.hopDirection.copy(direction.normalize());
+    hopper.hopDistance = distance;
+    hopper.hopWindupTimer = ArenaScene.hopperHopWindupDuration;
+    hopper.attackTimer = ArenaScene.hopperHopWindupDuration;
+  }
+
+  private chooseHopperEscapeDirection(hopper: EnemyUnit, fallback: Phaser.Math.Vector2): Phaser.Math.Vector2 {
+    const awayFromWall = new Phaser.Math.Vector2(0, 0);
+    if (hopper.sprite.x < ArenaScene.hopperWallMargin * 2) awayFromWall.x += 1;
+    if (hopper.sprite.x > this.arenaWidth - ArenaScene.hopperWallMargin * 2) awayFromWall.x -= 1;
+    if (hopper.sprite.y < ArenaScene.hopperWallMargin * 2) awayFromWall.y += 1;
+    if (hopper.sprite.y > this.arenaHeight - ArenaScene.hopperWallMargin * 2) awayFromWall.y -= 1;
+
+    const toPlayer = new Phaser.Math.Vector2(this.player.x - hopper.sprite.x, this.player.y - hopper.sprite.y);
+    const acrossPlayer = toPlayer.lengthSq() > 0.001
+      ? toPlayer.normalize()
+      : fallback.clone();
+    const candidate = awayFromWall.lengthSq() > 0.001
+      ? awayFromWall.normalize().add(acrossPlayer.scale(0.65))
+      : acrossPlayer;
+
+    if (candidate.lengthSq() <= 0.001) {
+      return fallback.clone().normalize();
+    }
+
+    return candidate.normalize();
+  }
+
+  private fireHopperShot(hopper: EnemyUnit): void {
+    const direction = hopper.lockedShotDirection.lengthSq() > 0.001
+      ? hopper.lockedShotDirection.clone().normalize()
+      : new Phaser.Math.Vector2(1, 0);
+    const angle = Math.atan2(direction.y, direction.x);
+    const sprite = this.physics.add.image(
+      hopper.sprite.x + direction.x * 30,
+      hopper.sprite.y + direction.y * 24,
+      "qf-bolt",
+    );
+    sprite.setTint(0xff6b35);
+    sprite.setRotation(angle);
+    sprite.setDepth(hopper.sprite.y + 20);
+
+    const velocity = direction.scale(HOPPER_CHARGED_SHOT_SPEED);
+    sprite.setVelocity(velocity.x, velocity.y);
+
+    this.projectiles.push({
+      type: "hopper-shot",
+      sprite,
+      velocity,
+      ttl: 2.2,
+      damage: HOPPER_CHARGED_SHOT_DAMAGE,
+      hitRadius: HOPPER_CHARGED_SHOT_HIT_RADIUS,
+    });
+  }
+
+  private createHopperShotTelegraph(hopper: EnemyUnit): void {
+    this.clearHopperShotTelegraph(hopper);
+    hopper.hopperShotTelegraph = this.add.rectangle(
+      hopper.sprite.x,
+      hopper.sprite.y,
+      260,
+      4,
+      0xff6b35,
+      0.34,
+    );
+    hopper.hopperShotTelegraph.setOrigin(0, 0.5);
+    hopper.hopperShotTelegraph.setDepth(hopper.sprite.depth - 2);
+    hopper.hopperShotGlow = this.add.circle(hopper.sprite.x, hopper.sprite.y, 30, 0xff3d1f, 0.08);
+    hopper.hopperShotGlow.setStrokeStyle(2, 0xff6b35, 0.58);
+    hopper.hopperShotGlow.setDepth(hopper.sprite.depth - 1);
+    this.updateHopperShotTelegraph(hopper);
+  }
+
+  private updateHopperShotTelegraph(hopper: EnemyUnit): void {
+    if (!hopper.hopperShotTelegraph || !hopper.hopperShotGlow) {
+      return;
+    }
+
+    const direction = hopper.lockedShotDirection;
+    const progress = 1 - hopper.shotWindupTimer / ArenaScene.hopperShotWindupDuration;
+    hopper.hopperShotTelegraph.setPosition(
+      hopper.sprite.x + direction.x * 26,
+      hopper.sprite.y + direction.y * 26,
+    );
+    hopper.hopperShotTelegraph.setRotation(Math.atan2(direction.y, direction.x));
+    hopper.hopperShotTelegraph.setAlpha(0.28 + progress * 0.48);
+    hopper.hopperShotTelegraph.setDisplaySize(220 + progress * 80, 4 + progress * 5);
+    hopper.hopperShotTelegraph.setDepth(hopper.sprite.depth - 2);
+    hopper.hopperShotGlow.setPosition(hopper.sprite.x, hopper.sprite.y);
+    hopper.hopperShotGlow.setScale(1 + progress * 0.45);
+    hopper.hopperShotGlow.setAlpha(0.08 + progress * 0.2);
+    hopper.hopperShotGlow.setDepth(hopper.sprite.depth - 1);
+  }
+
+  private clearHopperShotTelegraph(hopper: EnemyUnit): void {
+    hopper.hopperShotTelegraph?.destroy();
+    hopper.hopperShotTelegraph = undefined;
+    hopper.hopperShotGlow?.destroy();
+    hopper.hopperShotGlow = undefined;
+  }
+
   private createDroneLungeTelegraph(drone: EnemyUnit): void {
     this.clearDroneLungeTelegraph(drone);
     drone.lungeTelegraph = this.add.rectangle(
@@ -2095,15 +2420,16 @@ export class ArenaScene extends Phaser.Scene {
     return current + Math.sign(target - current) * maxDelta;
   }
 
-  private updateProjectiles(dt: number): void {
+  private updateProjectiles(dt: number): boolean {
     const survivors: Projectile[] = [];
 
-    this.projectiles.forEach((projectile) => {
+    for (let index = 0; index < this.projectiles.length; index += 1) {
+      const projectile = this.projectiles[index];
       projectile.ttl -= dt;
 
       if (projectile.ttl <= 0) {
         projectile.sprite.destroy();
-        return;
+        continue;
       }
 
       if (
@@ -2113,7 +2439,50 @@ export class ArenaScene extends Phaser.Scene {
         projectile.sprite.y > this.arenaHeight
       ) {
         projectile.sprite.destroy();
-        return;
+        continue;
+      }
+
+      if (projectile.type === "hopper-shot") {
+        const playerDistance = Phaser.Math.Distance.Between(
+          projectile.sprite.x,
+          projectile.sprite.y,
+          this.player.x,
+          this.player.y,
+        );
+
+        if (playerDistance <= projectile.hitRadius + 18) {
+          const wasInvulnerable = this.isPlayerInvulnerable();
+          const impactX = projectile.sprite.x;
+          const impactY = projectile.sprite.y;
+          projectile.sprite.destroy();
+
+          if (wasInvulnerable) {
+            this.createHopperShotDissipateVisual(impactX, impactY);
+            continue;
+          }
+
+          const died = gameState.applyDamage(projectile.damage);
+          this.cameras.main.shake(130, 0.0032);
+          if (died) {
+            this.projectiles = [
+              ...survivors,
+              ...this.projectiles.slice(index + 1),
+            ];
+            if (this.tryCollapse()) {
+              return true;
+            }
+
+            this.beginDeathSequence(
+              "decommissioned",
+              "Integrity collapse. The corporations reclaimed your body from the arena floor.",
+            );
+            return true;
+          }
+          continue;
+        }
+
+        survivors.push(projectile);
+        continue;
       }
 
       const impacted = this.drones.find((drone) => {
@@ -2131,15 +2500,30 @@ export class ArenaScene extends Phaser.Scene {
         const impactX = projectile.sprite.x;
         const impactY = projectile.sprite.y;
         this.applyRangedSiphonImpact(impactX, impactY, impacted);
-        this.hitDrone(impacted, RANGED_DIRECT_DAMAGE, angle, 180);
+        this.hitDrone(impacted, projectile.damage, angle, 180);
         projectile.sprite.destroy();
-        return;
+        continue;
       }
 
       survivors.push(projectile);
-    });
+    }
 
     this.projectiles = survivors;
+    return false;
+  }
+
+  private createHopperShotDissipateVisual(x: number, y: number): void {
+    const pulse = this.trackTransientVisual(this.add.circle(x, y, 12, 0xffcf66, 0.12));
+    pulse.setStrokeStyle(2, 0xff6b35, 0.72);
+    pulse.setDepth(y + 22);
+    this.tweens.add({
+      targets: pulse,
+      alpha: 0,
+      scale: { from: 1, to: 1.8 },
+      duration: 180,
+      ease: "Sine.easeOut",
+      onComplete: () => pulse.destroy(),
+    });
   }
 
   private updateVisuals(): void {
@@ -2161,7 +2545,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.enemyCountLabel?.setText(
-      `Round ${(gameState.roundsFinished + 1).toString().padStart(2, "0")} // Bugs ${this.drones.length.toString().padStart(2, "0")} // Gate ${
+      `Round ${(gameState.roundsFinished + 1).toString().padStart(2, "0")} // Enemies ${this.drones.length.toString().padStart(2, "0")} // Gate ${
         this.arenaCleared ? "Open" : "Conditional"
       }`,
     );
@@ -2687,10 +3071,10 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const recentTimeline = this.getRecentPlayerTimeline();
+    const trailPoints = this.getRecentTrailPoints();
     this.quantumTrailGraphics.clear();
 
-    if (recentTimeline.length < 2) {
+    if (trailPoints.length < 2) {
       this.quantumTargetMarker.setVisible(false);
       return;
     }
@@ -2698,23 +3082,18 @@ export class ArenaScene extends Phaser.Scene {
     const hasCharge = gameState.quantumTuners > 0;
     this.quantumTrailGraphics.lineStyle(2, 0x60ffd3, hasCharge ? 0.18 : 0.08);
     this.quantumTrailGraphics.beginPath();
-    this.quantumTrailGraphics.moveTo(
-      recentTimeline[0].snapshot.player.position.x,
-      recentTimeline[0].snapshot.player.position.y,
-    );
-    for (let index = 1; index < recentTimeline.length; index += 1) {
-      const point = recentTimeline[index].snapshot.player.position;
-      this.quantumTrailGraphics.lineTo(point.x, point.y);
+    this.quantumTrailGraphics.moveTo(trailPoints[0].x, trailPoints[0].y);
+    for (let index = 1; index < trailPoints.length; index += 1) {
+      this.quantumTrailGraphics.lineTo(trailPoints[index].x, trailPoints[index].y);
     }
     this.quantumTrailGraphics.strokePath();
 
-    for (let index = 0; index < recentTimeline.length; index += 4) {
-      const point = recentTimeline[index].snapshot.player.position;
+    for (let index = 0; index < trailPoints.length; index += 4) {
       this.quantumTrailGraphics.fillStyle(0xffcf66, hasCharge ? 0.12 : 0.06);
-      this.quantumTrailGraphics.fillCircle(point.x, point.y, 2.1);
+      this.quantumTrailGraphics.fillCircle(trailPoints[index].x, trailPoints[index].y, 2.1);
     }
 
-    const target = recentTimeline[0].snapshot.player.position;
+    const target = trailPoints[0];
     this.quantumTargetMarker.setVisible(true);
     this.quantumTargetMarker.setPosition(target.x, target.y);
     this.quantumTargetMarker.setAlpha(hasCharge ? 0.72 : 0.28);
@@ -2722,18 +3101,26 @@ export class ArenaScene extends Phaser.Scene {
     this.quantumTargetMarker.setDepth(target.y + 2);
   }
 
-  private getRecentPlayerTimeline(): TimedArenaSnapshot[] {
-    const recentTimeline = extractHistoryRange(
-      this.snapshotHistory,
-      Math.max(0, this.timelineTimeMs - QUANTUM_TUNER_REWIND_MS),
-      this.timelineTimeMs,
-    );
-    const latestSnapshot = this.captureArenaSnapshot();
-    recentTimeline.push({
-      timelineTimeMs: this.timelineTimeMs,
-      snapshot: latestSnapshot,
+  private getRecentTrailPoints(): TrailPoint[] {
+    const startTimeMs = Math.max(0, this.timelineTimeMs - QUANTUM_TUNER_REWIND_MS);
+    const points: TrailPoint[] = [];
+
+    for (let index = 0; index < this.snapshotHistory.length; index += 1) {
+      const entry = this.snapshotHistory[index];
+      if (entry.timelineTimeMs >= startTimeMs) {
+        points.push({
+          x: entry.snapshot.player.position.x,
+          y: entry.snapshot.player.position.y,
+        });
+      }
+    }
+
+    points.push({
+      x: this.player.x,
+      y: this.player.y,
     });
-    return recentTimeline;
+
+    return points;
   }
 
   private recordSnapshotIfDue(): void {
@@ -2773,16 +3160,20 @@ export class ArenaScene extends Phaser.Scene {
       },
       arenaCleared: this.arenaCleared,
       projectiles: this.projectiles.map((projectile): ProjectileArenaSnapshot => ({
+        type: projectile.type,
         position: { x: projectile.sprite.x, y: projectile.sprite.y },
         velocity: { x: projectile.velocity.x, y: projectile.velocity.y },
         ttl: projectile.ttl,
         rotation: projectile.sprite.rotation,
+        damage: projectile.damage,
+        hitRadius: projectile.hitRadius,
       })),
       enemies: this.enemySpawnPoints.map((spawnPoint) => {
         const liveDrone = liveEnemyById.get(spawnPoint.id);
         if (!liveDrone) {
           return {
             id: spawnPoint.id,
+            type: spawnPoint.type,
             alive: false,
             hp: 0,
             position: { x: spawnPoint.x, y: spawnPoint.y },
@@ -2795,11 +3186,20 @@ export class ArenaScene extends Phaser.Scene {
             lungeWindupTimer: 0,
             lungeTimer: 0,
             orbitSeed: spawnPoint.orbitSeed,
+            hopDirection: { x: 1, y: 0 },
+            hopCooldown: 0,
+            hopWindupTimer: 0,
+            hopTimer: 0,
+            landingRecoveryTimer: 0,
+            shotCooldown: 0,
+            shotWindupTimer: 0,
+            lockedShotDirection: { x: 1, y: 0 },
           };
         }
 
         return {
           id: liveDrone.id,
+          type: liveDrone.type,
           alive: true,
           hp: liveDrone.hp,
           position: { x: liveDrone.sprite.x, y: liveDrone.sprite.y },
@@ -2815,6 +3215,15 @@ export class ArenaScene extends Phaser.Scene {
           lungeWindupTimer: liveDrone.lungeWindupTimer,
           lungeTimer: liveDrone.lungeTimer,
           orbitSeed: liveDrone.orbitSeed,
+          hopDirection: { x: liveDrone.hopDirection.x, y: liveDrone.hopDirection.y },
+          hopCooldown: liveDrone.hopCooldown,
+          hopWindupTimer: liveDrone.hopWindupTimer,
+          hopTimer: liveDrone.hopTimer,
+          hopDistance: liveDrone.hopDistance,
+          landingRecoveryTimer: liveDrone.landingRecoveryTimer,
+          shotCooldown: liveDrone.shotCooldown,
+          shotWindupTimer: liveDrone.shotWindupTimer,
+          lockedShotDirection: { x: liveDrone.lockedShotDirection.x, y: liveDrone.lockedShotDirection.y },
         };
       }),
     };
@@ -2873,6 +3282,13 @@ export class ArenaScene extends Phaser.Scene {
     this.projectiles = snapshot.projectiles.map((projectileSnapshot) =>
       this.createProjectileFromSnapshot(projectileSnapshot),
     );
+    this.enemySpawnPoints = snapshot.enemies.map((enemySnapshot) => ({
+      id: enemySnapshot.id,
+      type: enemySnapshot.type ?? "bug",
+      x: enemySnapshot.position.x,
+      y: enemySnapshot.position.y,
+      orbitSeed: enemySnapshot.orbitSeed,
+    }));
     this.drones = snapshot.enemies
       .filter((enemySnapshot) => enemySnapshot.alive)
       .map((enemySnapshot) => this.createDrone(enemySnapshot));
@@ -2904,40 +3320,48 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createProjectileFromSnapshot(projectileSnapshot: ProjectileArenaSnapshot): Projectile {
+    const type = projectileSnapshot.type ?? "function";
     const sprite = this.physics.add.image(
       this.clampArenaX(projectileSnapshot.position.x),
       this.clampArenaY(projectileSnapshot.position.y),
       "qf-bolt",
     );
+    if (type === "hopper-shot") {
+      sprite.setTint(0xff6b35);
+    }
     sprite.setRotation(projectileSnapshot.rotation);
     sprite.setDepth(projectileSnapshot.position.y + 20);
     sprite.setVelocity(projectileSnapshot.velocity.x, projectileSnapshot.velocity.y);
 
     return {
+      type,
       sprite,
       velocity: new Phaser.Math.Vector2(
         projectileSnapshot.velocity.x,
         projectileSnapshot.velocity.y,
       ),
       ttl: projectileSnapshot.ttl,
+      damage: projectileSnapshot.damage ?? (type === "hopper-shot" ? HOPPER_CHARGED_SHOT_DAMAGE : RANGED_DIRECT_DAMAGE),
+      hitRadius: projectileSnapshot.hitRadius ?? (type === "hopper-shot" ? HOPPER_CHARGED_SHOT_HIT_RADIUS : 24),
     };
   }
 
   private createDrone(snapshot: EnemyArenaSnapshot): EnemyUnit {
+    const type = snapshot.type ?? "bug";
     const x = this.clampArenaX(snapshot.position.x);
     const y = this.clampArenaY(snapshot.position.y);
     const shadow = this.add.image(x, y + 18, "qf-shadow");
-    shadow.setScale(0.58, 0.52);
+    shadow.setScale(type === "hopper" ? 0.48 : 0.58, type === "hopper" ? 0.44 : 0.52);
     shadow.setAlpha(0.42);
     shadow.setDepth(snapshot.position.y - 6);
 
     const sprite = this.physics.add.sprite(
       x,
       y,
-      DRONE_SHEET_KEY,
+      type === "hopper" ? HOPPER_SHEET_KEY : DRONE_SHEET_KEY,
       spriteFrameName("idle", "s", 0),
     );
-    sprite.setScale(ACTOR_DISPLAY_SCALE);
+    sprite.setScale(type === "hopper" ? ACTOR_DISPLAY_SCALE * 0.88 : ACTOR_DISPLAY_SCALE);
     sprite.setCircle(28);
     sprite.setOffset(68, 88);
     sprite.setDepth(snapshot.position.y + 2);
@@ -2955,26 +3379,45 @@ export class ArenaScene extends Phaser.Scene {
 
     const drone: EnemyUnit = {
       id: snapshot.id,
+      type,
       sprite,
       shadow,
       playerCollider,
       wallCollider,
       lungeDirection: new Phaser.Math.Vector2(
-        snapshot.lungeDirection.x,
-        snapshot.lungeDirection.y,
+        snapshot.lungeDirection?.x ?? 1,
+        snapshot.lungeDirection?.y ?? 0,
+      ),
+      hopDirection: new Phaser.Math.Vector2(
+        snapshot.hopDirection?.x ?? 1,
+        snapshot.hopDirection?.y ?? 0,
+      ),
+      lockedShotDirection: new Phaser.Math.Vector2(
+        snapshot.lockedShotDirection?.x ?? 1,
+        snapshot.lockedShotDirection?.y ?? 0,
       ),
       hp: snapshot.hp,
       touchCooldown: snapshot.touchCooldown,
       attackTimer: snapshot.attackTimer,
       stunTimer: snapshot.stunTimer,
-      lungeCooldown: snapshot.lungeCooldown,
-      lungeWindupTimer: snapshot.lungeWindupTimer,
-      lungeTimer: snapshot.lungeTimer,
+      lungeCooldown: snapshot.lungeCooldown ?? 0,
+      lungeWindupTimer: snapshot.lungeWindupTimer ?? 0,
+      lungeTimer: snapshot.lungeTimer ?? 0,
+      hopCooldown: snapshot.hopCooldown ?? 0.35,
+      hopWindupTimer: snapshot.hopWindupTimer ?? 0,
+      hopTimer: snapshot.hopTimer ?? 0,
+      hopDistance: snapshot.hopDistance ?? ArenaScene.hopperMaxHopDistance,
+      landingRecoveryTimer: snapshot.landingRecoveryTimer ?? 0,
+      shotCooldown: snapshot.shotCooldown ?? 0.9,
+      shotWindupTimer: snapshot.shotWindupTimer ?? 0,
       orbitSeed: snapshot.orbitSeed,
     };
 
-    if (snapshot.lungeWindupTimer > 0) {
+    if ((snapshot.lungeWindupTimer ?? 0) > 0) {
       this.createDroneLungeTelegraph(drone);
+    }
+    if (type === "hopper" && snapshot.shotWindupTimer && snapshot.shotWindupTimer > 0) {
+      this.createHopperShotTelegraph(drone);
     }
 
     return drone;
@@ -2989,20 +3432,30 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private initialEnemySnapshot(spawnPoint: EnemySpawnPoint): EnemyArenaSnapshot {
+    const type = spawnPoint.type;
     return {
       id: spawnPoint.id,
+      type,
       alive: true,
-      hp: 44,
+      hp: type === "hopper" ? HOPPER_HP : 44,
       position: { x: spawnPoint.x, y: spawnPoint.y },
       velocity: { x: 0, y: 0 },
       lungeDirection: { x: 1, y: 0 },
       touchCooldown: 0,
       attackTimer: 0,
       stunTimer: 0,
-      lungeCooldown: 0.55 + spawnPoint.id * 0.08,
+      lungeCooldown: type === "bug" ? 0.55 + spawnPoint.id * 0.08 : 0,
       lungeWindupTimer: 0,
       lungeTimer: 0,
       orbitSeed: spawnPoint.orbitSeed,
+      hopDirection: { x: 1, y: 0 },
+      hopCooldown: type === "hopper" ? 0.35 : 0,
+      hopWindupTimer: 0,
+      hopTimer: 0,
+      landingRecoveryTimer: 0,
+      shotCooldown: type === "hopper" ? 0.8 : 0,
+      shotWindupTimer: 0,
+      lockedShotDirection: { x: 1, y: 0 },
     };
   }
 
@@ -3020,6 +3473,7 @@ export class ArenaScene extends Phaser.Scene {
     drone.playerCollider.destroy();
     drone.wallCollider.destroy();
     this.clearDroneLungeTelegraph(drone);
+    this.clearHopperShotTelegraph(drone);
     drone.shadow.destroy();
     drone.sprite.destroy();
   }
@@ -3039,5 +3493,23 @@ export class ArenaScene extends Phaser.Scene {
       this.transientVisuals.delete(visual);
     });
     return visual;
+  }
+
+  private timeSubsystem<T>(label: SubsystemLabel, fn: () => T): T {
+    this.diagnostics.beginSubsystem(label);
+    const result = fn();
+    this.diagnostics.endSubsystem(label);
+    return result;
+  }
+
+  private diagnosticsContext() {
+    return {
+      snapshotHistoryLength: this.snapshotHistory.length,
+      dronesLength: this.drones.length,
+      projectilesLength: this.projectiles.length,
+      computeCyclePhase: this.computeCycle.phase,
+      collapsePlaybackActive: this.collapsePlayback !== undefined,
+      deathSequenceActive: this.deathSequenceActive,
+    };
   }
 }

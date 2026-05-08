@@ -195,3 +195,52 @@ test("stored snapshots clone compute cycle deck state for collapse and resume", 
   assert.equal(history[0].snapshot.computeCycle.discardPile.length, 1);
   assert.equal(history[0].snapshot.computeCycle.queues.melee.length > 0, true);
 });
+
+test("stored snapshots preserve Hopper state and Hopper projectiles for Collapse", () => {
+  const source = createSnapshot(3, {
+    projectiles: [
+      {
+        type: "hopper-shot",
+        position: { x: 380, y: 420 },
+        velocity: { x: -120, y: 60 },
+        ttl: 1.8,
+        rotation: 0.8,
+        damage: 18,
+        hitRadius: 20,
+      },
+    ],
+    enemies: [
+      {
+        id: 5,
+        type: "hopper",
+        alive: true,
+        hp: 36,
+        position: { x: 1340, y: 370 },
+        velocity: { x: 90, y: -20 },
+        touchCooldown: 0.4,
+        attackTimer: 0.2,
+        stunTimer: 0,
+        orbitSeed: 3,
+        hopDirection: { x: -1, y: 0 },
+        hopCooldown: 0.8,
+        hopWindupTimer: 0.2,
+        hopTimer: 0,
+        landingRecoveryTimer: 0.45,
+        shotCooldown: 1.2,
+        shotWindupTimer: 0.55,
+        lockedShotDirection: { x: -0.5, y: 0.5 },
+      },
+    ],
+  });
+
+  const history = recordArenaSnapshot([], source, 6_000);
+
+  source.enemies[0].hp = 1;
+  source.projectiles[0].ttl = 0;
+
+  assert.equal(history[0].snapshot.enemies[0].type, "hopper");
+  assert.equal(history[0].snapshot.enemies[0].hp, 36);
+  assert.deepEqual(history[0].snapshot.enemies[0].lockedShotDirection, { x: -0.5, y: 0.5 });
+  assert.equal(history[0].snapshot.projectiles[0].type, "hopper-shot");
+  assert.equal(history[0].snapshot.projectiles[0].ttl, 1.8);
+});

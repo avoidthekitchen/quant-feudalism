@@ -2,7 +2,12 @@ import type { ComputeCycleState } from "./compute-cycle";
 
 export const QUANTUM_TUNER_HISTORY_WINDOW_MS = 15_000;
 export const QUANTUM_TUNER_REWIND_MS = 5_000;
-export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 50;
+export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 100;
+
+export interface TrailPoint {
+  x: number;
+  y: number;
+}
 
 export type SnapshotVector = {
   x: number;
@@ -14,6 +19,10 @@ export type SnapshotCooldowns = {
   melee: number;
   ranged: number;
 };
+
+export type EnemyArenaSnapshotType = "bug" | "hopper";
+
+export type ProjectileArenaSnapshotType = "function" | "hopper-shot";
 
 export interface ArenaRunStateSnapshotRecord {
   computeCurrent: number;
@@ -40,25 +49,38 @@ export interface PlayerArenaSnapshot {
 
 export interface EnemyArenaSnapshot {
   id: number;
+  type?: EnemyArenaSnapshotType;
   alive: boolean;
   hp: number;
   position: SnapshotVector;
   velocity: SnapshotVector;
-  lungeDirection: SnapshotVector;
+  lungeDirection?: SnapshotVector;
   touchCooldown: number;
   attackTimer: number;
   stunTimer: number;
-  lungeCooldown: number;
-  lungeWindupTimer: number;
-  lungeTimer: number;
+  lungeCooldown?: number;
+  lungeWindupTimer?: number;
+  lungeTimer?: number;
   orbitSeed: number;
+  hopDirection?: SnapshotVector;
+  hopCooldown?: number;
+  hopWindupTimer?: number;
+  hopTimer?: number;
+  hopDistance?: number;
+  landingRecoveryTimer?: number;
+  shotCooldown?: number;
+  shotWindupTimer?: number;
+  lockedShotDirection?: SnapshotVector;
 }
 
 export interface ProjectileArenaSnapshot {
+  type?: ProjectileArenaSnapshotType;
   position: SnapshotVector;
   velocity: SnapshotVector;
   ttl: number;
   rotation: number;
+  damage?: number;
+  hitRadius?: number;
 }
 
 export interface ArenaSnapshot {

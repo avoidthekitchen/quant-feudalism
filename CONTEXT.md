@@ -88,6 +88,10 @@ _Avoid_: Special Function
 An arena enemy that pursues, lunges, and blocks extraction bonuses until cleared.
 _Avoid_: Droid, drone, hostile
 
+**Hopper**:
+An arena enemy that fights from range by repositioning in hops and firing telegraphed charged shots.
+_Avoid_: Ranged Bug, drone
+
 **Bug Bounty Credits**:
 The run-scoped currency earned from arena results and spent on Compute Credit refills.
 _Avoid_: Shop credits
@@ -154,6 +158,24 @@ _Avoid_: End turn
 - **Refund** can be played when both compute pools are already full, still moving to discard and arming the discount.
 - **Refund** displays an in-world fiery player aura with one visible charge per remaining discounted attack.
 - A queued **Refund** can keep an **Active Window** from ending automatically while its **Function** lane cooldown clears.
+- **Bug** and **Hopper** are distinct arena enemy types.
+- **Hopper** primarily tests proactive **Dash** use to create **Statement** attack opportunities.
+- The first **Hopper** slice introduces exactly one **Hopper** in each arena deployment from round 2 onward.
+- In the first **Hopper** slice, the **Hopper** replaces one **Bug** rather than increasing total enemy count.
+- A **Hopper** prioritizes preserving distance before making a charged shot.
+- A **Hopper** is always damageable, with its strongest punish windows during charged-shot windup and landing recovery.
+- A **Hopper** charged shot locks its aim at windup start rather than tracking the player until firing.
+- **Dash** invulnerability prevents **Hopper** charged-shot damage.
+- A **Hopper** charged shot expires when it contacts an invulnerable Dashing player.
+- A **Hopper** can use corner-escape hops to avoid being permanently trapped against arena walls.
+- A **Hopper** corner-escape hop follows normal hop telegraph, landing recovery, damageability, and arena-collision rules.
+- A **Hopper** tries to fight from roughly 250 to 350 pixels away from the player.
+- A **Hopper** has a brief landing recovery after each hop that creates a **Statement** punish opportunity.
+- The first **Hopper** slice places the **Hopper** by replacing the newest deterministic **Bug** spawn slot from round 2 onward.
+- The first **Hopper** slice keeps the arena HUD enemy count neutral rather than listing enemy type composition.
+- **Collapse** restores **Hopper** state as part of authoritative arena state.
+- **Statement** and **Function** attacks treat **Hopper** as a normal arena enemy target.
+- Killing a **Hopper** contributes to arena kills, rewards, and clear conditions like killing a **Bug**.
 - An **Attack Card** belongs to exactly one **Attack Queue** while it is available.
 - **Attack Queues** are ordered lanes, but unaffordable cards do not block later affordable cards in the same lane.
 - Playing a **Card Type** uses the leftmost currently affordable **Attack Card** in that **Card Type** lane.
