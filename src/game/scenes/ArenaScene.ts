@@ -37,6 +37,7 @@ import {
   type AttackCardType,
   type ComputeCycleState,
 } from "../compute-cycle";
+import { ArenaDiagnostics, type SubsystemLabel } from "../diagnostics";
 import { createEnemySpawnPlan, type EnemyType } from "../enemies";
 import { getAttackCardDefinition } from "../card-catalog";
 import {
@@ -64,7 +65,8 @@ import {
    type PlayerArenaSnapshot,
    type ProjectileArenaSnapshot,
    type TimedArenaSnapshot,
- } from "../quantum-tuner";
+   type TrailPoint,
+  } from "../quantum-tuner";
 import { gameState, type ArenaOutcome } from "../state";
 
 type AbilityAction = CombatAbilityAction;
@@ -298,6 +300,7 @@ export class ArenaScene extends Phaser.Scene {
   private ghostShadow?: Phaser.GameObjects.Image;
   private ghostSprite?: Phaser.GameObjects.Sprite;
   private currentGhostAnim = "";
+  private readonly diagnostics = new ArenaDiagnostics();
 
   constructor() {
     super(SCENES.arena);
@@ -440,6 +443,14 @@ export class ArenaScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard!.addKeys("W,A,S,D,F,Q,E,SPACE") as ArenaScene["cursors"];
 
+    const diagKey = this.input.keyboard!.addKey("BACKTICK");
+    diagKey.on("down", () => {
+      const json = this.diagnostics.exportJson();
+      console.log("[quant-feudalism diagnostics]", json);
+      navigator.clipboard?.writeText(json).catch(() => {});
+      gameState.setNotice("Diagnostics exported to console and clipboard.");
+    });
+
     this.enemyCountLabel = this.add.text(24, 24, "", {
       fontFamily: "Azeret Mono, monospace",
       fontSize: "16px",
@@ -470,13 +481,16 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    this.diagnostics.beginFrame();
+
     if (this.deathSequenceActive) {
       return;
     }
 
     if (this.collapsePlayback) {
-      this.updateCollapsePlayback(delta);
-      this.updateQuantumTrail();
+      this.timeSubsystem("collapsePlayback", () => this.updateCollapsePlayback(delta));
+      this.timeSubsystem("quantumTrail", () => this.updateQuantumTrail());
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -487,12 +501,13 @@ export class ArenaScene extends Phaser.Scene {
     this.advanceAbilityCooldowns(delta);
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
-    this.advanceComputeCycleState(delta);
+    this.timeSubsystem("computeCycle", () => this.advanceComputeCycleState(delta));
 
     const pointer = this.input.activePointer;
     pointer.updateWorldPoint(this.cameras.main);
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.Q) && this.tryCollapse()) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -503,11 +518,12 @@ export class ArenaScene extends Phaser.Scene {
     this.updatePlayerMovement(dt, pointer);
     this.updatePlayerOrientation(pointer);
 
-    if (this.updateDrones(dt)) {
+    if (this.timeSubsystem("updateDrones", () => this.updateDrones(dt))) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
-    this.updateProjectiles(dt);
+    this.timeSubsystem("updateProjectiles", () => this.updateProjectiles(dt));
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
@@ -520,6 +536,7 @@ export class ArenaScene extends Phaser.Scene {
         : "Emergency extraction granted. The corporations keep the unused fear.";
       gameState.finishArena(this.arenaCleared ? "cleared" : "retreated", note, this.arenaElapsedTimeMs);
       this.scene.start(SCENES.shop);
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
@@ -539,9 +556,10 @@ export class ArenaScene extends Phaser.Scene {
       });
     }
 
-    this.recordSnapshotIfDue();
-    this.updateQuantumTrail();
+    this.timeSubsystem("recordSnapshot", () => this.recordSnapshotIfDue());
+    this.timeSubsystem("quantumTrail", () => this.updateQuantumTrail());
     this.updateGhostReplay(delta);
+    this.diagnostics.endFrame(delta, this.diagnosticsContext());
   }
 
   private drawArenaFloor(): void {
@@ -2144,11 +2162,11 @@ export class ArenaScene extends Phaser.Scene {
           hopper.attackTimer = 0.18;
         }
       } else if (hopper.hopTimer > 0) {
-        hopper.hopTimer = Math.max(0, hopper.hopTimer - dt);
+        hopper.hopTimer = Math.max(0, hopper.hopTimer - dt * ArenaScene.combatSpeedMultiplier);
         const hopVelocity = hopper.hopDirection
           .clone()
           .scale(hopper.hopDistance ?? ArenaScene.hopperMaxHopDistance)
-          .scale(1 / ArenaScene.hopperHopDuration);
+          .scale(ArenaScene.combatSpeedMultiplier / ArenaScene.hopperHopDuration);
         body.velocity.x = hopVelocity.x;
         body.velocity.y = hopVelocity.y;
         hopper.sprite.setTint(0xffd166);
@@ -2429,10 +2447,12 @@ export class ArenaScene extends Phaser.Scene {
 
         if (playerDistance <= projectile.hitRadius + 18) {
           const wasInvulnerable = this.isPlayerInvulnerable();
+          const impactX = projectile.sprite.x;
+          const impactY = projectile.sprite.y;
           projectile.sprite.destroy();
 
           if (wasInvulnerable) {
-            this.createHopperShotDissipateVisual(projectile.sprite.x, projectile.sprite.y);
+            this.createHopperShotDissipateVisual(impactX, impactY);
             return;
           }
 
@@ -3040,10 +3060,10 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const recentTimeline = this.getRecentPlayerTimeline();
+    const trailPoints = this.getRecentTrailPoints();
     this.quantumTrailGraphics.clear();
 
-    if (recentTimeline.length < 2) {
+    if (trailPoints.length < 2) {
       this.quantumTargetMarker.setVisible(false);
       return;
     }
@@ -3051,23 +3071,18 @@ export class ArenaScene extends Phaser.Scene {
     const hasCharge = gameState.quantumTuners > 0;
     this.quantumTrailGraphics.lineStyle(2, 0x60ffd3, hasCharge ? 0.18 : 0.08);
     this.quantumTrailGraphics.beginPath();
-    this.quantumTrailGraphics.moveTo(
-      recentTimeline[0].snapshot.player.position.x,
-      recentTimeline[0].snapshot.player.position.y,
-    );
-    for (let index = 1; index < recentTimeline.length; index += 1) {
-      const point = recentTimeline[index].snapshot.player.position;
-      this.quantumTrailGraphics.lineTo(point.x, point.y);
+    this.quantumTrailGraphics.moveTo(trailPoints[0].x, trailPoints[0].y);
+    for (let index = 1; index < trailPoints.length; index += 1) {
+      this.quantumTrailGraphics.lineTo(trailPoints[index].x, trailPoints[index].y);
     }
     this.quantumTrailGraphics.strokePath();
 
-    for (let index = 0; index < recentTimeline.length; index += 4) {
-      const point = recentTimeline[index].snapshot.player.position;
+    for (let index = 0; index < trailPoints.length; index += 4) {
       this.quantumTrailGraphics.fillStyle(0xffcf66, hasCharge ? 0.12 : 0.06);
-      this.quantumTrailGraphics.fillCircle(point.x, point.y, 2.1);
+      this.quantumTrailGraphics.fillCircle(trailPoints[index].x, trailPoints[index].y, 2.1);
     }
 
-    const target = recentTimeline[0].snapshot.player.position;
+    const target = trailPoints[0];
     this.quantumTargetMarker.setVisible(true);
     this.quantumTargetMarker.setPosition(target.x, target.y);
     this.quantumTargetMarker.setAlpha(hasCharge ? 0.72 : 0.28);
@@ -3075,18 +3090,28 @@ export class ArenaScene extends Phaser.Scene {
     this.quantumTargetMarker.setDepth(target.y + 2);
   }
 
-  private getRecentPlayerTimeline(): TimedArenaSnapshot[] {
-    const recentTimeline = extractHistoryRange(
-      this.snapshotHistory,
-      Math.max(0, this.timelineTimeMs - QUANTUM_TUNER_REWIND_MS),
-      this.timelineTimeMs,
-    );
-    const latestSnapshot = this.captureArenaSnapshot();
-    recentTimeline.push({
-      timelineTimeMs: this.timelineTimeMs,
-      snapshot: latestSnapshot,
+  private getRecentTrailPoints(): TrailPoint[] {
+    const startTimeMs = Math.max(0, this.timelineTimeMs - QUANTUM_TUNER_REWIND_MS);
+    const points: TrailPoint[] = [];
+
+    for (let index = 0; index < this.snapshotHistory.length; index += 1) {
+      const entry = this.snapshotHistory[index];
+      if (entry.timelineTimeMs >= startTimeMs) {
+        points.push({
+          x: entry.snapshot.player.position.x,
+          y: entry.snapshot.player.position.y,
+          timeMs: entry.timelineTimeMs,
+        });
+      }
+    }
+
+    points.push({
+      x: this.player.x,
+      y: this.player.y,
+      timeMs: this.timelineTimeMs,
     });
-    return recentTimeline;
+
+    return points;
   }
 
   private recordSnapshotIfDue(): void {
@@ -3185,6 +3210,7 @@ export class ArenaScene extends Phaser.Scene {
           hopCooldown: liveDrone.hopCooldown,
           hopWindupTimer: liveDrone.hopWindupTimer,
           hopTimer: liveDrone.hopTimer,
+          hopDistance: liveDrone.hopDistance,
           landingRecoveryTimer: liveDrone.landingRecoveryTimer,
           shotCooldown: liveDrone.shotCooldown,
           shotWindupTimer: liveDrone.shotWindupTimer,
@@ -3371,7 +3397,7 @@ export class ArenaScene extends Phaser.Scene {
       hopCooldown: snapshot.hopCooldown ?? 0.35,
       hopWindupTimer: snapshot.hopWindupTimer ?? 0,
       hopTimer: snapshot.hopTimer ?? 0,
-      hopDistance: ArenaScene.hopperMaxHopDistance,
+      hopDistance: snapshot.hopDistance ?? ArenaScene.hopperMaxHopDistance,
       landingRecoveryTimer: snapshot.landingRecoveryTimer ?? 0,
       shotCooldown: snapshot.shotCooldown ?? 0.9,
       shotWindupTimer: snapshot.shotWindupTimer ?? 0,
@@ -3458,5 +3484,23 @@ export class ArenaScene extends Phaser.Scene {
       this.transientVisuals.delete(visual);
     });
     return visual;
+  }
+
+  private timeSubsystem<T>(label: SubsystemLabel, fn: () => T): T {
+    this.diagnostics.beginSubsystem(label);
+    const result = fn();
+    this.diagnostics.endSubsystem(label);
+    return result;
+  }
+
+  private diagnosticsContext() {
+    return {
+      snapshotHistoryLength: this.snapshotHistory.length,
+      dronesLength: this.drones.length,
+      projectilesLength: this.projectiles.length,
+      computeCyclePhase: this.computeCycle.phase,
+      collapsePlaybackActive: this.collapsePlayback !== undefined,
+      deathSequenceActive: this.deathSequenceActive,
+    };
   }
 }

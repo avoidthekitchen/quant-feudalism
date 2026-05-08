@@ -2,7 +2,13 @@ import type { ComputeCycleState } from "./compute-cycle";
 
 export const QUANTUM_TUNER_HISTORY_WINDOW_MS = 15_000;
 export const QUANTUM_TUNER_REWIND_MS = 5_000;
-export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 50;
+export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 100;
+
+export interface TrailPoint {
+  x: number;
+  y: number;
+  timeMs: number;
+}
 
 export type SnapshotVector = {
   x: number;
@@ -61,6 +67,7 @@ export interface EnemyArenaSnapshot {
   hopCooldown?: number;
   hopWindupTimer?: number;
   hopTimer?: number;
+  hopDistance?: number;
   landingRecoveryTimer?: number;
   shotCooldown?: number;
   shotWindupTimer?: number;
