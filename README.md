@@ -57,9 +57,9 @@ itch.io project kind to HTML/browser-playable on the game's edit page.
 
 Each save file now revolves around runs. A run starts in the shop, spans repeated deployments into the arena, and continues until the player manually ends it or their integrity collapses without enough Compute Credits left to buy a repair.
 
-Within a run, start in the shop, buy Compute Credits with bug bounty credits, deploy into the arena, clear bugs, and extract at the northern gate. Clearing all bugs pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving bugs void the clear bonus.
+Within a run, start in the shop, buy Compute Credits with bug bounty credits, deploy into the arena, clear all enemies, and extract at the northern gate. Clearing all enemies pays the largest reward. Emergency extraction is allowed before the arena is clear, but surviving enemies void the clear bonus.
 
-The first arena round starts with `5` bugs. Each cleared round increases future bug count by `1`, up to `20` hand-placed spawn points. `Rounds Finished` and `Kills` are tracked across the whole run, and the splash screen scoreboard shows the top three runs ranked by rounds finished, with kills as a secondary stat.
+The first arena round starts with `5` Bugs. Each cleared round increases the total enemy count by `1`. From round 2 onward, exactly one Hopper replaces the newest Bug spawn slot, keeping the total enemy count equal to the Bug count that would have spawned without Hoppers. The total enemy count caps at `20` hand-placed spawn points. `Rounds Finished` and `Kills` are tracked across the whole run, and the splash screen scoreboard shows the top three runs ranked by rounds finished, with kills as a secondary stat.
 
 ## Resources
 
@@ -128,7 +128,7 @@ Press `Space` to dash.
 - Dash speed: `780 px/s`.
 - Dash duration: `145ms`.
 - Invulnerability: `240ms`.
-- During dash invulnerability, bug bodies do not block the player, so the dash can pass through bugs.
+- During dash invulnerability, enemy bodies do not block the player, so the dash can pass through enemies.
 
 ## Attack Cards
 
@@ -160,8 +160,8 @@ Bolt is the Basic Function card and the named version of the existing projectile
 - Projectile speed: `490 px/s`.
 - Projectile lifetime: `1.2s`.
 - Firing causes a `320ms` movement pause and a longer `280ms` attack animation, so Function attacks require deliberate commitment instead of being fully mobile.
-- On direct hit, Bolt creates a `112 px` pull splash that drags nearby bugs inward without dealing extra damage or stun.
-- Each bug affected by that splash refunds `6` Compute Credits, up to `18` per shot.
+- On direct hit, Bolt creates a `112 px` pull splash that drags nearby enemies inward without dealing extra damage or stun.
+- Each enemy affected by that splash refunds `6` Compute Credits, up to `18` per shot.
 - The siphon refund restores `Compute Credits` only. It does not restore `Compute Rate Limit` and does not change the current Cycle.
 
 ### Trim
@@ -220,7 +220,7 @@ The arena runs through repeating Cycles:
 - Press `E` during the Active Window to discard the remaining queued cards and end the cycle early.
 - The Active Window also ends automatically after committed attacks resolve when no queued Attack Card can be afforded now or after normal lane cooldown clears.
 - Cycle End discards remaining queued Attack Cards and starts a `3s` Preparing Window.
-- During Preparing, attacks are unavailable, movement is slowed to `60%`, Dash remains free and available, and bugs behave normally.
+- During Preparing, attacks are unavailable, movement is slowed to `60%`, Dash remains free and available, and enemies behave normally.
 - When Preparing completes, the next Active Window refills Compute Rate Limit and draws back to the queue limit.
 
 If the draw pile cannot satisfy a draw, the discard pile shuffles into a new draw pile and dealing continues.
@@ -233,13 +233,15 @@ Press `Q` in the Arena to trigger Collapse if at least one Quantum Tuner charge 
 - Collapse rewinds the exact authoritative Arena state by up to `5s`; if less history is available, it rewinds to the oldest available snapshot and still consumes the charge.
 - The visible rewind effect compresses the discarded branch into a `1s` cinematic backward scrub before control resumes.
 - Player position, movement state, cooldowns, compute recovery delay, integrity, Compute Rate Limit, Compute Credits, kills, and prompt/status text revert to the earlier snapshot.
-- Bugs return to their earlier positions and state, including resurrection of bugs that were dead in the discarded timeline.
-- Projectiles and arena clear-state also revert to the earlier snapshot.
+- Enemies return to their earlier positions and state (including type, HP, hop/lunge timers, and locked shot direction for Hoppers), including resurrection of enemies that were dead in the discarded timeline.
+- Enemy projectiles (Hopper charged shots) and arena clear-state also revert to the earlier snapshot.
 - A faint persistent quantum trail shows the recent 5-second path and rewind destination while you play.
 - After Collapse, a subtle non-interactive ghost replays the discarded player timeline at normal speed.
 - Up to `15s` of history are retained, so multiple banked charges can be chained immediately for deeper rewinds.
 
-## Bugs
+## Enemies
+
+### Bug
 
 Bugs pursue, orbit, and lunge.
 
@@ -253,6 +255,38 @@ Bugs pursue, orbit, and lunge.
 - Lunge contact damage is `18`.
 
 The lunge direction is committed during the telegraph, so precise dashes and footwork can dodge it.
+
+### Hopper
+
+Hoppers fight from range using hop-based movement and telegraphed charged shots. One Hopper replaces the newest Bug slot from round 2 onward. Hopper is always damageable.
+
+- HP: `36`.
+- Touch damage: `10`.
+- Preferred combat range: `250-350 px`.
+
+**Hop movement:**
+- Hop windup: `200ms` (visible flash/squash, direction locked).
+- Hop duration: `180ms` (active hop movement).
+- Landing recovery: `450ms` (punish window).
+- Hop cooldown: `800ms` after landing recovery.
+- Hop distance: `150-200 px`.
+- If the player is closer than `250 px`, Hopper hops away.
+- If the player is beyond `400 px`, Hopper hops toward the player.
+- At `250-350 px` range, Hopper may strafe-hop to preserve range.
+- Corner escape triggers when a hop destination is too close to a wall, using normal hop rules to cross or skirt around the player.
+
+**Charged shot:**
+- Windup: `550ms` (orange/red glow with visible aim line).
+- Aim locks at windup start; the shot does not track.
+- Projectile speed: `350 px/s`.
+- Damage: `18`.
+- Hit radius: `20 px`.
+- Cooldown after firing: `2.2s`.
+- Hopper stops moving during shot windup.
+- Dash invulnerability prevents damage and consumes the shot on contact.
+- Statement stun cancels shot windup and hop windup.
+
+Statement and Function attacks hit and stun Hopper normally. Bolt splash, pull, and siphon include Hopper alongside Bugs.
 
 ## Extraction And Rewards
 
