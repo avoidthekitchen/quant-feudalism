@@ -484,6 +484,7 @@ export class ArenaScene extends Phaser.Scene {
     this.diagnostics.beginFrame();
 
     if (this.deathSequenceActive) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
 
