@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 
 export const PLAYER_SHEET_KEY = "qf-player-sheet";
 export const DRONE_SHEET_KEY = "qf-drone-sheet";
+export const HOPPER_SHEET_KEY = "qf-hopper-sheet";
 export const SPRITE_DIRECTIONS = ["s", "se", "e", "ne", "n", "nw", "w", "sw"] as const;
 export const ACTOR_FRAME_WIDTH = 192;
 export const ACTOR_FRAME_HEIGHT = 224;
@@ -384,6 +385,100 @@ function drawDroneSheetFrame(
   }
 }
 
+function drawHopperSheetFrame(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  direction: SpriteDirection,
+  action: SpriteAction,
+  frame: number,
+): void {
+  const dir = directionVector(direction);
+  const side = Math.sign(dir.x) || 1;
+  const cx = x + 96;
+  const hopPulse = action === "run" ? [0, -18, -10, 4][frame % 4] : action === "dash" ? -16 + frame * 4 : 0;
+  const crouch = action === "attack" ? frame * 3 : action === "idle" && frame === 1 ? 2 : 0;
+  const cy = y + 136 + hopPulse + crouch;
+  const legSpread = action === "run" ? [32, 52, 42, 24][frame % 4] : action === "attack" ? 26 : 38;
+  const antennaLift = action === "attack" ? 12 + frame * 5 : 5;
+  const glow = action === "attack";
+
+  rect(ctx, cx - 48, y + 178, 96, 12, "rgba(2, 5, 9, 0.38)");
+
+  if (action === "run" || action === "dash") {
+    rect(ctx, cx - side * (72 + frame * 14), cy + 8, 54, 7, "rgba(255, 207, 102, 0.34)");
+    rect(ctx, cx - side * (54 + frame * 12), cy + 22, 38, 6, "rgba(255, 107, 53, 0.26)");
+  }
+
+  if (glow) {
+    rect(ctx, cx - 42 + dir.x * 12, cy - 42 + dir.y * 8, 84, 84, "rgba(255, 107, 53, 0.14)");
+    rect(ctx, cx - 28 + dir.x * 18, cy - 28 + dir.y * 12, 56, 56, "rgba(255, 207, 102, 0.16)");
+  }
+
+  const rearLegColor = "#442716";
+  const legColor = "#784118";
+  const hotLeg = "#ffcf66";
+  strokePixelLine(ctx, cx - 26, cy + 20, cx - legSpread, cy + 58, rearLegColor, 9);
+  strokePixelLine(ctx, cx - legSpread, cy + 58, cx - legSpread - 30, cy + 66, legColor, 9);
+  strokePixelLine(ctx, cx + 26, cy + 20, cx + legSpread, cy + 58, rearLegColor, 9);
+  strokePixelLine(ctx, cx + legSpread, cy + 58, cx + legSpread + 30, cy + 66, legColor, 9);
+  strokePixelLine(ctx, cx - 18, cy + 18, cx - 36, cy + 46, hotLeg, 4);
+  strokePixelLine(ctx, cx + 18, cy + 18, cx + 36, cy + 46, hotLeg, 4);
+
+  strokePixelLine(ctx, cx - 24, cy + 2, cx - 58, cy + 26, "#5f3518", 7);
+  strokePixelLine(ctx, cx + 24, cy + 2, cx + 58, cy + 26, "#5f3518", 7);
+  rect(ctx, cx - 66, cy + 24, 18, 8, "#ff6b35");
+  rect(ctx, cx + 48, cy + 24, 18, 8, "#ff6b35");
+
+  ctx.fillStyle = "#130d08";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 42, 28 - crouch, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ff8f2f";
+  ctx.beginPath();
+  ctx.ellipse(cx + side * 6, cy - 2, 32, 20 - crouch * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#743815";
+  ctx.beginPath();
+  ctx.ellipse(cx - side * 14, cy + 4, 22, 18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  polygon(ctx, [
+    [cx - 34 + dir.x * 4, cy - 4],
+    [cx - 12 + dir.x * 10, cy - 30],
+    [cx + 22 + dir.x * 12, cy - 26],
+    [cx + 36 + dir.x * 8, cy - 2],
+    [cx + 16 + dir.x * 6, cy + 18],
+    [cx - 24 + dir.x * 2, cy + 16],
+  ], "#1a0f08");
+  polygon(ctx, [
+    [cx - 22 + dir.x * 6, cy - 5],
+    [cx - 8 + dir.x * 12, cy - 20],
+    [cx + 18 + dir.x * 12, cy - 18],
+    [cx + 28 + dir.x * 8, cy - 2],
+    [cx + 10 + dir.x * 6, cy + 10],
+    [cx - 16 + dir.x * 2, cy + 8],
+  ], "#ffb13d");
+
+  rect(ctx, cx - 16 + dir.x * 16, cy - 10 + dir.y * 4, 26, 9, glow ? "#ffffff" : "#261106");
+  rect(ctx, cx - 12 + dir.x * 18, cy - 8 + dir.y * 4, 18, 5, glow ? "#ff3d1f" : "#60ffd3");
+  rect(ctx, cx + 8 + dir.x * 15, cy - 12 + dir.y * 4, 7, 7, "#fff8d6");
+
+  strokePixelLine(ctx, cx - 4 + dir.x * 12, cy - 26, cx - 22 + dir.x * 34, cy - 58 - antennaLift, "#ffcf66", 3);
+  strokePixelLine(ctx, cx + 10 + dir.x * 12, cy - 24, cx + 30 + dir.x * 34, cy - 54 - antennaLift, "#ffcf66", 3);
+  rect(ctx, cx - 26 + dir.x * 34, cy - 62 - antennaLift, 7, 7, "#ff6b35");
+  rect(ctx, cx + 27 + dir.x * 34, cy - 58 - antennaLift, 7, 7, "#ff6b35");
+
+  rect(ctx, cx - 28, cy + 8, 56, 6, "#2a1609");
+  rect(ctx, cx - 20, cy + 10, 12, 5, "#ffcf66");
+  rect(ctx, cx + 6, cy + 10, 12, 5, "#ffcf66");
+
+  if (glow) {
+    strokePixelLine(ctx, cx + dir.x * 24, cy - 6, cx + dir.x * (78 + frame * 12), cy + dir.y * (36 + frame * 8), "#ff6b35", 7);
+    strokePixelLine(ctx, cx + dir.x * 26, cy - 6, cx + dir.x * (82 + frame * 12), cy + dir.y * (38 + frame * 8), "#ffcf66", 3);
+  }
+}
+
 function createActorSheet(
   scene: Phaser.Scene,
   key: string,
@@ -447,7 +542,7 @@ export function spriteFrameName(
 }
 
 export function spriteAnimationKey(
-  actor: "player" | "drone",
+  actor: "player" | "drone" | "hopper",
   action: SpriteAction,
   direction: SpriteDirection,
 ): string {
@@ -463,6 +558,7 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.setVisible(false);
   createActorSheet(scene, PLAYER_SHEET_KEY, drawPlayerSheetFrame);
   createActorSheet(scene, DRONE_SHEET_KEY, drawDroneSheetFrame);
+  createActorSheet(scene, HOPPER_SHEET_KEY, drawHopperSheetFrame);
 
   graphics.clear();
   graphics.fillStyle(0x344653, 1);

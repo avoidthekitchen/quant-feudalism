@@ -16,6 +16,7 @@ These notes capture follow-up design direction before implementation. They shoul
 - **Overflow should consume half the remaining Compute Rate Limit.** It can still turn unspent compute into damage, but it should be a deliberate finisher rather than a cheap add-on that preserves most of the window.
 - **Shield, Thorns, and health-as-resource player builds are deprioritized.** These builds may be hard to balance without ruining the fragile, precision-positioning feel. For now, avoid making the player feel tanky or rewarded for passively absorbing hits.
 - **Do not add a third lane yet.** The two-lane constraint is real, but keep it for the next pass and try alternatives first: state-based card redesigns, setup cards that modify the next attack, Scaffolds, and limited queue manipulation.
+- **Keep Detonate as AoE burst and consider Immolate as the AoE DoT.** Detonate should remain the instant grouped-enemy payoff with per-enemy scaling. Add Immolate to the first-pass Crowd Control set as a targeted fire zone: no projectile, no slow, no per-enemy bonus, but high full-duration damage if enemies stay in the area.
 
 ## Design constraints
 
@@ -170,7 +171,7 @@ This is the highest single-target burst in the game but requires all three cards
 
 *Shape the battlefield. Group enemies, then punish the cluster.*
 
-All four cards below are designed to coexist. They give the player two shaping tools (pull and push) and two payoff tools (AoE burst and DoT/slow).
+All five cards below are designed to coexist. They give the player two shaping tools (pull and push) and three payoff tools: instant AoE burst, ground-zone AoE DoT, and single-target DoT/slow.
 
 ### Cards
 
@@ -232,6 +233,35 @@ Melee arc (same range as Slash). All enemies hit are pushed ~120px directly away
 - Push enemies into Singularity well
 - Push enemies off the player during lunge attacks
 
+#### Immolate
+
+| Property | Value |
+|---|---|
+| Lane | Function (ranged) |
+| Card class | special |
+| Cost | 40 |
+| Cooldown | 1000ms |
+| Damage | 6 per tick × 8 ticks (48 max per enemy) |
+
+Targeted ground AoE at cursor, not a projectile. After a 200ms arming delay, creates a burning zone (160px radius) lasting 2 seconds. Enemies inside the zone take 6 damage every 0.25s for 8 ticks. Each tick checks the current enemy positions; enemies only take ticks while they remain inside the burning zone.
+
+**No slow, no debuff, no per-enemy bonus.** Immolate owns space and damage. Corrupt owns single-target DoT + slow. Detonate owns instant grouped burst with per-enemy scaling.
+
+**Damage by time inside zone:**
+
+| Time inside zone | Ticks taken | Damage per enemy |
+|---|---:|---:|
+| 0.25s | 1 | 6 |
+| 0.5s | 2 | 12 |
+| 1.0s | 4 | 24 |
+| 1.25s | 5 | 30 |
+| 1.5s | 6 | 36 |
+| 2.0s | 8 | 48 |
+
+**Design intent:** Immolate is the "hold them there" payoff. Its full damage is higher than Detonate's per-enemy burst, but it is paid over time and usually requires setup. Singularity's 1.2s pull, Corrupt's slow, Shockwave positioning, or good path prediction help enemies stay in the zone long enough for the payoff. Without setup, most enemies should leave before taking the full 48 damage.
+
+**Balance watchout:** Immolate is efficient against stationary bosses or enemies trapped by encounter geometry. Boss tuning should account for the fact that a target that cannot leave the zone takes the full 48 damage per cast.
+
 #### Corrupt
 
 | Property | Value |
@@ -264,11 +294,17 @@ Projectile. On hit: applies 1 stack of **Corrupt** debuff.
 3. Detonate hits the clump
 4. 5 enemies: 30 damage each = 150 total (only efficient because they're grouped)
 
+**Pull + Burn (Singularity → Immolate):**
+1. Singularity fires into enemy cluster
+2. Immolate is placed where the pull will concentrate enemies
+3. The 200ms arming delay rewards early placement and timing
+4. Enemies held for Singularity's pull window usually take ~24-30 damage each; enemies held for the full 2s take 48 each
+
 **Push + DoT (Shockwave → Corrupt):**
 1. Enemies surround player
 2. Shockwave pushes them all into a line/cluster
-3. Corrupt hits 2-3 enemies, applies slow
-4. Kite while DoT ticks, reapply Corrupt to stack
+3. Corrupt hits a priority target, applying DoT + slow
+4. Kite while DoT ticks, reapply Corrupt to stack on that target
 
 **Cross-archetype: Singularity → Detonate on Exposed enemies:**
 1. Expose one or more enemies
@@ -518,7 +554,7 @@ Melee arc. Deals 10 base damage plus **2× current Shield value** as bonus damag
 
 ## Full Card Summary
 
-### New Cards (11 total)
+### New Cards (12 total)
 
 | # | Name | Lane | Class | Cost | CD | Dmg | Key Mechanic |
 |---|---|---|---|---|---|---|---|
@@ -528,11 +564,12 @@ Melee arc. Deals 10 base damage plus **2× current Shield value** as bonus damag
 | 4 | Singularity | Function | special | 35 | 900ms | 5 | Pull enemies to impact for 1.2s |
 | 5 | Detonate | Function | special | 45 | 1000ms | 10+4×enemies | AoE, scales with grouped enemies (strong at 5+) |
 | 6 | Shockwave | Statement | special | 25 | 500ms | 10 | Push enemies 120px away |
-| 7 | Corrupt | Function | special | 20 | 820ms | 5 | DoT 12 + slow 30% (×3 stacks) |
-| 8 | Iterate | Statement | special | 20 | 350ms | 5+8N | +8 damage per play this deployment |
-| 9 | Echo | Statement | special | 20 | 350ms | varies | Copies last Statement card's damage |
-| 10 | Tag | Function | special | 15 | 700ms | 8 | Apply Mark (max 5, persists deployment) |
-| 11 | Execute | Statement | special | 25 | 400ms | 10+12×Marks | Consume Marks for burst |
+| 7 | Immolate | Function | special | 40 | 1000ms | 6×8 ticks | Targeted fire zone, 48 max per enemy over 2s |
+| 8 | Corrupt | Function | special | 20 | 820ms | 5 | Single-target DoT 12 + slow 30% (×3 stacks) |
+| 9 | Iterate | Statement | special | 20 | 350ms | 5+8N | +8 damage per play this deployment |
+| 10 | Echo | Statement | special | 20 | 350ms | varies | Copies last Statement card's damage |
+| 11 | Tag | Function | special | 15 | 700ms | 8 | Apply Mark (max 5, persists deployment) |
+| 12 | Execute | Statement | special | 25 | 400ms | 10+12×Marks | Consume Marks for burst |
 
 ### New Status Effects (4 total)
 
@@ -549,13 +586,14 @@ Melee arc. Deals 10 base damage plus **2× current Shield value** as bonus damag
 
 The most interesting combos come from mixing archetypes:
 
-| Combo | Cards | Setup | Payoff | Total burst |
+| Combo | Cards | Setup | Payoff | Damage payoff |
 |---|---|---|---|---|
 | **Shadow Assassin** | Phase Shift + Expose + Backstab | Teleport behind, expose | Backstab from behind × 1.4 | 60 on one target (0.35s) |
 | **Nuke** | Singularity + Expose + Detonate | Group + expose | AoE burst × 1.4 | ~42/enemy (5 enemies) |
 | **Executioner** | Tag × 5 + Expose + Execute | Stack marks, expose | Consume marks | 138 on one target |
 | **Ramp Echo** | Iterate × 5 + Echo | Ramp over deployment | Copy ramped damage | 135 in one window |
-| **Poison Zone** | Singularity + Corrupt × 3 | Group + apply DoT/slow | Kite while DoT ticks | ~63 over 4 ticks (3 stacks × 5 enemies) |
+| **Fire Trap** | Singularity + Immolate | Group + hold zone | AoE DoT over 2s | Up to 48/enemy if held full duration |
+| **Poison Pickoff** | Corrupt × 3 | Stack on priority target | Single-target DoT + slow | 51 on one target over 2s |
 
 ---
 
@@ -591,7 +629,7 @@ interface OnHitEffect {
 }
 
 interface OnPlayEffect {
-  type: "teleport" | "cloak" | "draw" | "consume-marks";
+  type: "teleport" | "cloak" | "draw" | "consume-marks" | "zone";
   duration?: number;        // ms
   magnitude?: number;       // e.g. teleport distance
   maxStacks?: number;
@@ -604,6 +642,7 @@ The arena state needs to track:
 
 - **Per-enemy debuffs:** Vulnerable, Corrupt stacks, Mark stacks
 - **Player buffs:** Cloaked (boolean + timer)
+- **Active zones:** Immolate burn zones with position, radius, arming delay, tick cadence, and remaining duration
 - **Deployment counters:** Iterate play count (persists across Active Windows)
 - **Active Window tracking:** Last Statement card played (for Echo)
 
@@ -617,6 +656,7 @@ Damage resolution needs to apply multipliers in a defined order:
 4. State modifiers (Vulnerable: × 1.4)
 5. Mark-based modifiers (Execute: +12 × Marks)
 6. Detonate bonus (+4 × enemies in radius, only efficient at 5+ enemies)
+7. Immolate zone ticks (6 damage per tick to each enemy currently inside the active burn zone)
 
 ### CardId union type
 
@@ -625,7 +665,7 @@ export type CardId =
   | "slash" | "bolt" | "trim" | "refund"
   | "phase_shift" | "backstab"
   | "expose"
-  | "singularity" | "detonate"
+  | "singularity" | "detonate" | "immolate"
   | "shockwave" | "corrupt"
   | "iterate" | "echo"
   | "tag" | "execute";
@@ -637,7 +677,7 @@ export type CardId =
 2. **Expose + Backstab** — simplest combo, tests the vulnerable debuff and positional damage
 3. **Iterate + Echo** — tests deployment-wide state tracking
 4. **Corrupt** — tests stacking DoT + slow
-5. **Singularity + Detonate + Shockwave** — tests AoE grouping and multipliers
+5. **Singularity + Detonate + Immolate + Shockwave** — tests AoE grouping, burst, ground-zone DoT, and multipliers
 6. **Tag + Execute** — tests Mark stacking and consumption
 7. **Phase Shift** — tests teleport + cloak (most complex mechanically)
 
@@ -658,7 +698,7 @@ export type CardId =
 
 ### The Problem with First Pass
 
-First Pass cards have obvious pairings: Phase Shift → Backstab, Singularity → Detonate, Tag → Execute. The optimal build is clear: run both cards in the pair. This limits deckbuilding creativity.
+First Pass cards have obvious pairings: Phase Shift → Backstab, Singularity → Detonate/Immolate, Tag → Execute. The optimal build is clear: run both cards in the pair. This limits deckbuilding creativity.
 
 Second Pass cards solve this by interacting with **shared game state** (enemy debuff count, nearby enemies, remaining compute, dashes, cards played) rather than with specific named cards. This means any card that changes the relevant state becomes a valid partner, creating emergent and non-obvious combos.
 
@@ -990,14 +1030,14 @@ Projectile. Only starts scaling above 100px. Damage is based on distance between
 
 | # | Name | Lane | Class | Cost | CD | Dmg | Key Mechanic |
 |---|---|---|---|---|---|---|---|
-| 16 | Conduit | Statement | special | 20 | 400ms | 8+10×debuffs | Bonus per debuff type on target |
-| 17 | Chain Lightning | Function | special | 30 | 900ms | 18/bounce | Bounces between debuffed enemies (×3) |
-| 18 | Overflow | Function | special | 5 + half remaining compute | 820ms | 0.5×compute | Consumes and converts remaining compute |
-| 19 | Momentum | Statement | special | 25−3×dash | 350ms | 20 | Cost drops per Dash this window |
-| 20 | Surge | Function | special | 40−4×plays | 820ms | 30 | Cost drops per card played this window |
-| 21 | Overwhelm | Statement | special | 20 | 350ms | 8+7×nearby | Bonus per enemy in melee range |
-| 22 | Resonance | Function | special | 18 | 820ms | 5 | Copies last debuff applied this window |
-| 23 | Precision | Function | special | 25 | 820ms | 5+0.2×(dist−100) | Only beats Bolt at 300px+, max 85 at 500px |
+| 17 | Conduit | Statement | special | 20 | 400ms | 8+10×debuffs | Bonus per debuff type on target |
+| 18 | Chain Lightning | Function | special | 30 | 900ms | 18/bounce | Bounces between debuffed enemies (×3) |
+| 19 | Overflow | Function | special | 5 + half remaining compute | 820ms | 0.5×compute | Consumes and converts remaining compute |
+| 20 | Momentum | Statement | special | 25−3×dash | 350ms | 20 | Cost drops per Dash this window |
+| 21 | Surge | Function | special | 40−4×plays | 820ms | 30 | Cost drops per card played this window |
+| 22 | Overwhelm | Statement | special | 20 | 350ms | 8+7×nearby | Bonus per enemy in melee range |
+| 23 | Resonance | Function | special | 18 | 820ms | 5 | Copies last debuff applied this window |
+| 24 | Precision | Function | special | 25 | 820ms | 5+0.2×(dist−100) | Only beats Bolt at 300px+, max 85 at 500px |
 
 ---
 
@@ -1025,9 +1065,9 @@ Unlike First Pass combos (A → B), Second Pass combos emerge from shared state.
 
 ### Deck: The Architect
 
-**Core:** Singularity + Detonate + Expose + Chain Lightning + Resonance
-**Flow:** Singularity groups enemies → Expose one target (Statement) → Resonance copies Vulnerable to another (Function) → Chain Lightning bounces between debuffed cluster → Detonate finishes for 30+ per enemy
-**Why it works:** All about controlling enemy positioning and spreading debuffs through the group. Detonate only reaches its full potential (30+ per enemy) when 5+ enemies are grouped by Singularity. The multipliers stack because every enemy is debuffed AND grouped.
+**Core:** Singularity + Detonate + Immolate + Expose + Chain Lightning + Resonance
+**Flow:** Singularity groups enemies → Expose one target (Statement) → Resonance copies Vulnerable to another (Function) → Chain Lightning bounces between debuffed cluster → Detonate cashes out burst or Immolate burns the held zone
+**Why it works:** All about controlling enemy positioning and spreading debuffs through the group. Detonate only reaches its full potential (30+ per enemy) when 5+ enemies are grouped by Singularity. Immolate trades that instant cash-out for higher full-duration damage if the group stays in the fire zone.
 
 ### Deck: The Ghost
 
@@ -1185,7 +1225,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 **Effect:** That card has a **33% chance to double-cast** — offensive cards fire twice in rapid succession; utility cards are cast for free.
 
 **What "double-cast" means:**
-- **Offensive Function cards** (Bolt, Detonate, Singularity, Tag, Corrupt, Chain Lightning, Precision, Overflow, Surge): The card fires twice in rapid succession (~150ms apart). You pay the cost once. Both casts resolve independently — separate projectile, separate hit detection, separate on-hit effects. Lane cooldown starts after the second cast.
+- **Offensive Function cards** (Bolt, Detonate, Immolate, Singularity, Tag, Corrupt, Chain Lightning, Precision, Overflow, Surge): The card fires or resolves twice in rapid succession (~150ms apart). You pay the cost once. Both casts resolve independently — separate projectile, zone, hit detection, or on-hit effects as appropriate. Lane cooldown starts after the second cast.
 - **Utility Function cards** (Refund, Phase Shift): The card is cast for 0 compute instead. No double-cast.
 
 **Qualifying cards (cost 30+):**
@@ -1194,6 +1234,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 |---|---|---|
 | Bolt | 40 | Yes |
 | Detonate | 45 | Yes |
+| Immolate | 40 | Yes |
 | Singularity | 35 | Yes |
 | Phase Shift | 30 | Yes |
 | Surge | 40−4×plays | Yes (at 0-2 plays) |
@@ -1209,12 +1250,15 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 |---|---|---|
 | Bolt-heavy (10 Bolts) | 10 | ~3-4 |
 | Detonate build (5 Detonates) | 5 | ~1-2 |
+| Immolate build (5 Immolates) | 5 | ~1-2 |
 | Singularity + Detonate (3+3) | 6 | ~2 |
-| Mixed (4 Bolts + 2 Singularity + 2 Detonate) | 8 | ~2-3 |
+| Singularity + Immolate (3+3) | 6 | ~2 |
+| Mixed (4 Bolts + 2 Singularity + 2 Detonate + 2 Immolate) | 10 | ~3 |
 
 **Decks it rewards:**
 - Bolt-heavy decks (40 cost qualifies → ~33% chance of double Bolt = two projectiles with separate splash/siphon = double siphon refund potential)
 - Detonate builds (45 cost qualifies → ~33% chance of double Detonate = two AoE explosions against grouped enemies)
+- Immolate builds (40 cost qualifies → ~33% chance of double Immolate = overlapping fire zones against held enemies)
 - Any deck running expensive Function cards (30+ compute)
 
 **Decks it punishes:**
@@ -1248,7 +1292,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **What it does:** The more different cards you've played this arena deployment, the harder everything hits. Running a diverse deck is rewarded with a percentage damage bonus that scales with all your damage sources.
 
-**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Shockwave, Corrupt, Iterate, Echo, Tag, Execute, Conduit, Chain Lightning, Overflow, Momentum, Surge, Overwhelm, Resonance, Precision. (23 total, but max bonus caps at 10 unique.)
+**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Immolate, Shockwave, Corrupt, Iterate, Echo, Tag, Execute, Conduit, Chain Lightning, Overflow, Momentum, Surge, Overwhelm, Resonance, Precision. (24 total, but max bonus caps at 10 unique.)
 
 **Damage bonus by unique cards in discard:**
 

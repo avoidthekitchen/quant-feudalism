@@ -15,6 +15,10 @@ export type SnapshotCooldowns = {
   ranged: number;
 };
 
+export type EnemyArenaSnapshotType = "bug" | "hopper";
+
+export type ProjectileArenaSnapshotType = "function" | "hopper-shot";
+
 export interface ArenaRunStateSnapshotRecord {
   computeCurrent: number;
   allotmentCurrent: number;
@@ -40,25 +44,37 @@ export interface PlayerArenaSnapshot {
 
 export interface EnemyArenaSnapshot {
   id: number;
+  type?: EnemyArenaSnapshotType;
   alive: boolean;
   hp: number;
   position: SnapshotVector;
   velocity: SnapshotVector;
-  lungeDirection: SnapshotVector;
+  lungeDirection?: SnapshotVector;
   touchCooldown: number;
   attackTimer: number;
   stunTimer: number;
-  lungeCooldown: number;
-  lungeWindupTimer: number;
-  lungeTimer: number;
+  lungeCooldown?: number;
+  lungeWindupTimer?: number;
+  lungeTimer?: number;
   orbitSeed: number;
+  hopDirection?: SnapshotVector;
+  hopCooldown?: number;
+  hopWindupTimer?: number;
+  hopTimer?: number;
+  landingRecoveryTimer?: number;
+  shotCooldown?: number;
+  shotWindupTimer?: number;
+  lockedShotDirection?: SnapshotVector;
 }
 
 export interface ProjectileArenaSnapshot {
+  type?: ProjectileArenaSnapshotType;
   position: SnapshotVector;
   velocity: SnapshotVector;
   ttl: number;
   rotation: number;
+  damage?: number;
+  hitRadius?: number;
 }
 
 export interface ArenaSnapshot {
