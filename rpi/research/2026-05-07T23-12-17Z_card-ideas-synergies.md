@@ -1,9 +1,21 @@
 # Card Ideas: Synergy Archetypes & Multi-Card Combos
 
 Created: 2026-05-07T23:12:17Z
-Updated: 2026-05-07
+Updated: 2026-05-08
 
 Status: Research / brainstorm. Not yet implemented.
+
+## Design review notes — 2026-05-08
+
+These notes capture follow-up design direction before implementation. They should be treated as current guidance over the earlier speculative tuning in this document.
+
+- **Shatter is deprioritized.** The current version, `10 + 2×Shield` without consuming Shield, risks giving the player offense and defense from the same resource with too little execution pressure. Keep it documented as a considered concept, but do not include it in the active card implementation plan.
+- **Phase Shift should be less safe.** Start by making Cloak break immediately when the player deals damage. A softer enemy-reacquisition variant can be tested later, but the hard break is cleaner and better for first implementation.
+- **Iterate should ramp only on hit.** Do not increment the deployment-wide ramp counter from a whiff or blind play. Consider a cap around 5 successful hits, so it reaches a powerful but bounded 45 damage instead of scaling indefinitely.
+- **Tag + Execute is probably acceptable if it stays single-target.** Its safety depends on Tag hit reliability and Mark persistence. Execute consuming all Marks, requiring melee range, and paying Statement cooldown gives it meaningful risk; watch it if Tag becomes too easy to apply at range.
+- **Overflow should consume half the remaining Compute Rate Limit.** It can still turn unspent compute into damage, but it should be a deliberate finisher rather than a cheap add-on that preserves most of the window.
+- **Shield, Thorns, and health-as-resource player builds are deprioritized.** These builds may be hard to balance without ruining the fragile, precision-positioning feel. For now, avoid making the player feel tanky or rewarded for passively absorbing hits.
+- **Do not add a third lane yet.** The two-lane constraint is real, but keep it for the next pass and try alternatives first: state-based card redesigns, setup cards that modify the next attack, Scaffolds, and limited queue manipulation.
 
 ## Design constraints
 
@@ -57,15 +69,12 @@ On play: teleport ~200px toward cursor position. Grants **Cloaked** state for 1.
 - Enemies drop aggro (treat player as invisible)
 - No enemy collision
 - Visual: player becomes semi-transparent
-- Broken early if player deals damage (optional — see design note below)
+- Breaks immediately when the player deals damage
 - Does NOT grant invulnerability (unlike Dash)
 
 **Relationship to Dash:** Dash is free i-frames for dodging. Phase Shift is a *positioning tool* that costs compute. They serve different roles.
 
-**Design note — break cloak on damage?**
-- If cloak breaks on damage: prevents chaining Backstabs freely, makes each cloak window precious. More skill expression.
-- If cloak persists through damage: lets you Backstab multiple enemies in one cloak. More powerful, easier to use.
-- Recommendation: cloak persists through damage. The 1.5s duration is short enough, and the cost (30 compute) is meaningful.
+**Design note — break cloak on damage:** Start with the hard-break version. This prevents chaining Backstabs freely, makes each cloak window precious, and preserves enemy pressure after the player commits to damage. A softer future variant could keep the visual/collision part of Cloak briefly while enemies reacquire aggro after the first hit.
 
 #### Backstab
 
@@ -85,7 +94,7 @@ On play: teleport ~200px toward cursor position. Grants **Cloaked** state for 1.
 
 1. Phase Shift teleports behind enemy cluster
 2. Backstab hits from behind for 37 damage each
-3. Cloak lets you reposition for a second Backstab before aggro returns
+3. Cloak breaks on damage, so the player must escape or continue the fight under normal enemy pressure
 
 ### Synergy with Vulnerable (Archetype 2)
 
@@ -204,7 +213,7 @@ Projectile. On impact: AoE explosion (160px radius). Each enemy hit takes 10 bas
 
 **Design intent:** Detonate is the "group punishment" card. At 1-4 enemies, it's weaker than Bolt's splash (20 per enemy). Only at 5+ grouped enemies does it become the most efficient AoE in the game. This makes Singularity essential for Detonate builds — without grouping, Detonate is overpriced (45 compute for 14 damage against a single target).
 
-**Why it's not the highest damage spell:** Even at 5 enemies (30 each), Detonate deals less per-target than single-target setup cards: Execute (70), Bastion (150), Bolt direct hit (40). The value comes from total damage across many targets, not spike damage on one target. This is the correct AoE niche — efficient against groups, weak against singles.
+**Why it's not the highest damage spell:** Even at 5 enemies (30 each), Detonate deals less per-target than single-target setup cards like Execute (70) or Bolt direct hit (40). The value comes from total damage across many targets, not spike damage on one target. This is the correct AoE niche — efficient against groups, weak against singles.
 
 #### Shockwave
 
@@ -342,111 +351,7 @@ Deals damage equal to the **last Statement card played this Active Window**. If 
 
 ---
 
-## Archetype 5: Barricade
-
-*Build defenses, then weaponize them.*
-
-This archetype introduces **Shield** as a new player resource.
-
-### New mechanic: Shield
-
-- Shield is a temporary HP buffer that absorbs damage before Integrity
-- Shield does NOT regenerate naturally
-- Shield is granted by card effects
-- Shield is displayed as a blue bar overlapping the Integrity bar
-- When Shield absorbs damage, it flashes white
-- Shield persists across Active Windows but is lost on death (Quantum Tuner rewind restores it)
-
-### Cards
-
-#### Fortify
-
-| Property | Value |
-|---|---|
-| Lane | Function (ranged) |
-| Card class | special |
-| Cost | 25 |
-| Cooldown | 1500ms |
-| Damage | 0 |
-
-Grants **15 Shield** to the player. Shield stacks up to a maximum of 50.
-
-**Design note — Shield cap:** 50 Shield at max means the player can absorb ~3 bug hits (14 damage each) before Integrity is touched. This is meaningful but not game-breaking.
-
-#### Shatter
-
-| Property | Value |
-|---|---|
-| Lane | Statement (melee) |
-| Card class | special |
-| Cost | 15 |
-| Cooldown | 400ms |
-| Damage | 10 + (current Shield × 2) |
-
-Melee arc. Deals 10 base damage plus **2× current Shield value** as bonus damage. Does NOT consume the Shield.
-
-**Damage examples:**
-
-| Shield when played | Total damage |
-|---|---|
-| 0 | 10 |
-| 15 (1 Fortify) | 40 |
-| 30 (2 Fortifies) | 70 |
-| 50 (3+ Fortifies) | 110 |
-
-**Key: Shield is NOT consumed.** Shatter reads your Shield but doesn't spend it. This means you can Shatter multiple times while your Shield holds. The Shield naturally depletes as enemies hit you, so there's a window of peak Shatter damage.
-
-#### Bastion
-
-| Property | Value |
-|---|---|
-| Lane | Statement (melee) |
-| Card class | special |
-| Cost | 30 |
-| Cooldown | 600ms |
-| Damage | 0 |
-
-Consumes ALL current Shield. Deals **3× consumed Shield** as damage in a wide melee arc (wider than Slash, same range).
-
-**Damage examples:**
-
-| Shield consumed | Damage |
-|---|---|
-| 15 | 45 |
-| 30 | 90 |
-| 50 | 150 |
-
-**Key: Shield IS consumed.** This is the "cash out" move. You build Shield with Fortify, then either:
-
-- **Shatter** repeatedly for sustained high damage (keep Shield)
-- **Bastion** once for massive burst (spend Shield)
-
-This creates an interesting decision point during combat.
-
-### Combo: Fortify → Shatter (sustained) vs Fortify → Bastion (burst)
-
-**Sustained Shatter loop:**
-1. Fortify (gain 15 Shield)
-2. Shatter for 10 + 30 = 40 damage
-3. Enemy hits you for 14 (Shield absorbs: 15 → 1)
-4. Shatter again for 10 + 2 = 12 (Shield nearly gone)
-5. Fortify again (Shield: 16), Shatter for 42
-
-**Burst Bastion:**
-1. Fortify × 2 over two Active Windows (Shield: 30)
-2. Avoid damage using Dash
-3. Bastion for 90 damage in one hit
-4. Shield gone, return to normal play
-
-### Cross-archetype synergy: Barricade + Expose
-
-1. Build Shield with Fortify
-2. Expose a target (+40% damage taken)
-3. Bastion for 90 × 1.4 = **126 damage** burst
-
----
-
-## Archetype 6: Mark & Execute
+## Archetype 5: Mark & Execute
 
 *Mark targets from range, detonate marks in melee.*
 
@@ -506,11 +411,41 @@ Melee arc. Consumes all Marks on the target.
 
 ---
 
-## Archetype 7: Thorns
+## Considered But Deprioritized
 
-*Let them come to you. Punish aggression.*
+These card concepts are documented for future experiments, but should not be included in the next implementation pass.
 
-### Cards
+### Shield, Thorns, And Health-As-Resource Builds
+
+These concepts are high tuning risk for the current direction. They may reward passive tanking, intentional damage intake, or standing in enemy pressure instead of precise movement and positioning. Keep the player feeling fragile for now; revisit these only after enemy variety proves the precision game can survive defensive build options.
+
+#### Fortify
+
+| Property | Value |
+|---|---|
+| Lane | Function (ranged) |
+| Card class | special |
+| Cost | 25 |
+| Cooldown | 1500ms |
+| Damage | 0 |
+
+Grants **15 Shield** to the player. Shield stacks up to a maximum of 50.
+
+**Reason deprioritized:** Shield can make mistakes too forgiving and can become a generic solution to enemy pressure. It also enables other damage-from-defense cards that risk making tank play optimal.
+
+#### Bastion
+
+| Property | Value |
+|---|---|
+| Lane | Statement (melee) |
+| Card class | special |
+| Cost | 30 |
+| Cooldown | 600ms |
+| Damage | 0 |
+
+Consumes ALL current Shield. Deals **3× consumed Shield** as damage in a wide melee arc.
+
+**Reason deprioritized:** Bastion is more disciplined than Shatter because it consumes Shield, but it still depends on adding player Shield as a major combat resource. Revisit only if defensive build paths become desirable.
 
 #### Spike
 
@@ -524,35 +459,66 @@ Melee arc. Consumes all Marks on the target.
 
 Grants **Thorns: 14** for 4 seconds. Any enemy that deals contact damage to the player while Thorns is active takes 14 damage.
 
-**Design notes:**
-- Thorns triggers on bug touch damage (14) and lunge damage (18)
-- Thorns does NOT trigger on ranged attacks (future enemies like Hopper)
-- Visual: player has a spiky aura while active
-- Thorns damage can kill enemies
-- Thorns can trigger multiple times (if multiple bugs hit you in the same frame, each takes damage)
+**Reason deprioritized:** Thorns risks rewarding players for being hit or for standing inside enemy clusters. That directly conflicts with the current goal that combat feel fragile and positioning-driven.
 
-### Combo: Spike + Fortify
+#### Fury
 
-1. Fortify (gain 15 Shield)
-2. Spike (gain Thorns: 14)
-3. Let bugs lunge into you
-4. Each lunge: you take 0 Integrity damage (Shield absorbs 14), bug takes 14 Thorns damage
-5. After Shield breaks, Dash away
+| Property | Value |
+|---|---|
+| Lane | Statement (melee) |
+| Card class | special |
+| Cost | 15 |
+| Cooldown | 350ms |
+| Damage | 10 + 6 × (hits taken this Active Window) |
 
-This creates a "tank" playstyle where you bait enemies into attacking you.
+Melee arc. Tracks how many times the player has taken damage during the current Active Window. Each hit adds +6 damage.
 
-### Combo: Spike + Singularity
+**Reason deprioritized:** Fury makes damage intake a direct offensive resource. Even if numerically fair, it can teach players that getting hit is part of optimal execution.
 
-1. Singularity groups enemies
-2. Walk into the cluster
-3. Spike active — all clustered enemies take 14 each time they touch you
-4. Dash out when health gets low
+#### Blood Price
+
+| Property | Value |
+|---|---|
+| Lane | Statement (melee) |
+| Card class | special |
+| Cost | 0 compute |
+| Cooldown | 600ms |
+| Damage | 40 |
+
+Melee arc. Costs 0 compute but spends **15 Integrity** directly.
+
+**Reason deprioritized:** Integrity-as-cost can create interesting deckbuilding, but it shifts the run toward health economy management. That is not the current priority while the combat should remain fragile, precise, and position-driven.
+
+### Shatter
+
+*Build defenses, then weaponize them without spending the defensive resource.*
+
+| Property | Value |
+|---|---|
+| Lane | Statement (melee) |
+| Card class | special |
+| Cost | 15 |
+| Cooldown | 400ms |
+| Damage | 10 + (current Shield × 2) |
+
+Melee arc. Deals 10 base damage plus **2× current Shield value** as bonus damage. Does NOT consume the Shield.
+
+**Reason deprioritized:** This version risks making Shield too broadly optimal because the same resource provides both safety and repeatable damage. Partial Shield consumption makes Shatter overlap with Bastion, while no consumption lowers the execution and positioning demands too much. Revisit only if the Shield archetype needs a sustained-damage tool that is clearly distinct from Bastion.
+
+**Damage examples:**
+
+| Shield when played | Total damage |
+|---|---|
+| 0 | 10 |
+| 15 (1 Fortify) | 40 |
+| 30 (2 Fortifies) | 70 |
+| 50 (3+ Fortifies) | 110 |
 
 ---
 
 ## Full Card Summary
 
-### New Cards (14 total)
+### New Cards (11 total)
 
 | # | Name | Lane | Class | Cost | CD | Dmg | Key Mechanic |
 |---|---|---|---|---|---|---|---|
@@ -565,23 +531,17 @@ This creates a "tank" playstyle where you bait enemies into attacking you.
 | 7 | Corrupt | Function | special | 20 | 820ms | 5 | DoT 12 + slow 30% (×3 stacks) |
 | 8 | Iterate | Statement | special | 20 | 350ms | 5+8N | +8 damage per play this deployment |
 | 9 | Echo | Statement | special | 20 | 350ms | varies | Copies last Statement card's damage |
-| 10 | Fortify | Function | special | 25 | 1500ms | 0 | Gain 15 Shield (max 50) |
-| 11 | Shatter | Statement | special | 15 | 400ms | 10+2×Shield | Bonus from Shield (not consumed) |
-| 12 | Bastion | Statement | special | 30 | 600ms | 3×Shield | Consume all Shield for burst |
-| 13 | Tag | Function | special | 15 | 700ms | 8 | Apply Mark (max 5, persists deployment) |
-| 14 | Execute | Statement | special | 25 | 400ms | 10+12×Marks | Consume Marks for burst |
-| 15 | Spike | Function | special | 20 | 1500ms | 0 | Thorns: 14 for 4s |
+| 10 | Tag | Function | special | 15 | 700ms | 8 | Apply Mark (max 5, persists deployment) |
+| 11 | Execute | Statement | special | 25 | 400ms | 10+12×Marks | Consume Marks for burst |
 
-### New Status Effects (6 total)
+### New Status Effects (4 total)
 
 | Status | Applied by | Stacks | Duration | Effect |
 |---|---|---|---|---|
 | Cloaked | Phase Shift | No | 1.5s | Invisible to enemies, no collision |
 | Vulnerable | Expose | No | 6s | +40% damage taken |
 | Corrupt | Corrupt | Yes (3 max) | 2s (refresh) | DoT 3/tick + slow (30/45/60%) |
-| Shield | Fortify | Yes (50 max) | Until consumed or lost | Absorbs damage before Integrity |
 | Mark | Tag | Yes (5 max) | Entire deployment | Consumed by Execute for bonus damage |
-| Thorns | Spike | No | 4s | Reflects 14 damage to attackers |
 
 ---
 
@@ -593,10 +553,8 @@ The most interesting combos come from mixing archetypes:
 |---|---|---|---|---|
 | **Shadow Assassin** | Phase Shift + Expose + Backstab | Teleport behind, expose | Backstab from behind × 1.4 | 60 on one target (0.35s) |
 | **Nuke** | Singularity + Expose + Detonate | Group + expose | AoE burst × 1.4 | ~42/enemy (5 enemies) |
-| **Tank Burst** | Fortify × 2 + Expose + Bastion | Build shield, expose | Consume shield for burst | 126 on one target |
 | **Executioner** | Tag × 5 + Expose + Execute | Stack marks, expose | Consume marks | 138 on one target |
 | **Ramp Echo** | Iterate × 5 + Echo | Ramp over deployment | Copy ramped damage | 135 in one window |
-| **Thorn Wall** | Spike + Singularity + Fortify | Group on you + shield | Thorns while shielded | AoE 14/hit sustained |
 | **Poison Zone** | Singularity + Corrupt × 3 | Group + apply DoT/slow | Kite while DoT ticks | ~63 over 4 ticks (3 stacks × 5 enemies) |
 
 ---
@@ -633,10 +591,10 @@ interface OnHitEffect {
 }
 
 interface OnPlayEffect {
-  type: "teleport" | "cloak" | "shield" | "thorns" | "draw" | "consume-shield" | "consume-marks";
+  type: "teleport" | "cloak" | "draw" | "consume-marks";
   duration?: number;        // ms
-  magnitude?: number;       // e.g. shield amount, thorns damage, teleport distance
-  maxStacks?: number;       // e.g. shield cap
+  magnitude?: number;       // e.g. teleport distance
+  maxStacks?: number;
 }
 ```
 
@@ -645,7 +603,7 @@ interface OnPlayEffect {
 The arena state needs to track:
 
 - **Per-enemy debuffs:** Vulnerable, Corrupt stacks, Mark stacks
-- **Player buffs:** Cloaked (boolean + timer), Shield (amount), Thorns (boolean + timer + damage)
+- **Player buffs:** Cloaked (boolean + timer)
 - **Deployment counters:** Iterate play count (persists across Active Windows)
 - **Active Window tracking:** Last Statement card played (for Echo)
 
@@ -657,9 +615,8 @@ Damage resolution needs to apply multipliers in a defined order:
 2. Positional modifiers (Backstab: × 2.5 if behind)
 3. Ramp modifiers (Iterate: +8 × N)
 4. State modifiers (Vulnerable: × 1.4)
-5. Shield-based modifiers (Shatter: +2 × Shield, Bastion: × 3 × consumed Shield)
-6. Mark-based modifiers (Execute: +12 × Marks)
-7. Detonate bonus (+4 × enemies in radius, only efficient at 5+ enemies)
+5. Mark-based modifiers (Execute: +12 × Marks)
+6. Detonate bonus (+4 × enemies in radius, only efficient at 5+ enemies)
 
 ### CardId union type
 
@@ -671,9 +628,7 @@ export type CardId =
   | "singularity" | "detonate"
   | "shockwave" | "corrupt"
   | "iterate" | "echo"
-  | "fortify" | "shatter" | "bastion"
-  | "tag" | "execute"
-  | "spike";
+  | "tag" | "execute";
 ```
 
 ### Recommended implementation order
@@ -683,17 +638,14 @@ export type CardId =
 3. **Iterate + Echo** — tests deployment-wide state tracking
 4. **Corrupt** — tests stacking DoT + slow
 5. **Singularity + Detonate + Shockwave** — tests AoE grouping and multipliers
-6. **Fortify + Shatter + Bastion** — tests Shield resource system
-7. **Tag + Execute** — tests Mark stacking and consumption
-8. **Phase Shift** — tests teleport + cloak (most complex mechanically)
-9. **Spike** — tests Thorns (simple once other effects exist)
+6. **Tag + Execute** — tests Mark stacking and consumption
+7. **Phase Shift** — tests teleport + cloak (most complex mechanically)
 
 ### Balance considerations
 
 - All new cards are **special** class (max 10 copies each)
 - Base damage on combo cards is intentionally lower than Slash/Bolt to prevent them from being auto-includes without combo support
 - Vulnerable at +40% is strong but requires a Statement lane play on a low-damage melee card (8 damage vs Slash's 23)
-- Shield cap of 50 prevents stalling forever
 - Corrupt slow caps at 60% — enemies still move
 - Iterate needs 3+ plays to outdamage Slash — early investment cost
 - Mark × 5 + Execute takes multiple Active Windows to set up — payoff is deserved
@@ -706,9 +658,9 @@ export type CardId =
 
 ### The Problem with First Pass
 
-First Pass cards have obvious pairings: Phase Shift → Backstab, Singularity → Detonate, Tag → Execute, Fortify → Shatter/Bastion. The optimal build is clear: run both cards in the pair. This limits deckbuilding creativity.
+First Pass cards have obvious pairings: Phase Shift → Backstab, Singularity → Detonate, Tag → Execute. The optimal build is clear: run both cards in the pair. This limits deckbuilding creativity.
 
-Second Pass cards solve this by interacting with **shared game state** (enemy debuff count, nearby enemies, remaining compute, damage taken) rather than with specific named cards. This means any card that changes the relevant state becomes a valid partner, creating emergent and non-obvious combos.
+Second Pass cards solve this by interacting with **shared game state** (enemy debuff count, nearby enemies, remaining compute, dashes, cards played) rather than with specific named cards. This means any card that changes the relevant state becomes a valid partner, creating emergent and non-obvious combos.
 
 ### Design inspiration from other games
 
@@ -765,48 +717,7 @@ Melee arc. Counts the number of **distinct debuff types** on the target: Vulnera
 
 ---
 
-### Card 2: Fury
-
-*A card that rewards taking hits.*
-
-| Property | Value |
-|---|---|
-| Lane | Statement (melee) |
-| Card class | special |
-| Cost | 15 |
-| Cooldown | 350ms |
-| Damage | 10 + 6 × (hits taken this Active Window) |
-
-Melee arc. Tracks how many times the player has taken damage during the current Active Window. Each hit adds +6 damage.
-
-**Damage scaling:**
-
-| Hits taken this window | Damage |
-|---|---|
-| 0 | 10 (weak — worse than Slash) |
-| 1 | 16 |
-| 2 | 22 |
-| 3 | 28 (matches Slash) |
-| 4 | 34 |
-| 5 | 40 (matches Bolt) |
-
-Counter resets each Active Window.
-
-**Why this is flexible:** Fury doesn't pair with any specific card. It pairs with a *playstyle* — being aggressive and taking contact damage. Any build that involves being near enemies works.
-
-**Cross-archetype partners:**
-- Spike (Thorns) → Fury: Take hits, deal Thorns damage, then Fury scales from those hits
-- Fortify (Shield) → Fury: Shield absorbs hits but they still count for Fury's counter. You take "damage" to Shield, not Integrity, but the hit counter still increments
-- Singularity → Fury: Enemies grouped and pulled toward you means more contact hits = more Fury stacks
-- Dash (no card needed): Dash to avoid hits when you DON'T want them, let hits land when you DO want Fury to scale
-
-**Design tension:** Fury creates a push-pull dynamic. You want to take hits to scale it, but taking hits is dangerous. Shield and Thorns mitigate the danger. Dash lets you selectively avoid hits. No single card is the "right" pairing.
-
-**From Slay the Spire:** This is the **Rupture + Blood Letting** pattern — self-damage becomes a resource that makes you stronger. The tension between taking damage and dealing damage is the core of Ironclad's red-eye builds.
-
----
-
-### Card 3: Chain Lightning
+### Card 2: Chain Lightning
 
 *Bounces between debuffed enemies.*
 
@@ -841,7 +752,7 @@ Projectile. On hit: if the target has any debuff (Vulnerable, Corrupt, Mark), th
 
 ---
 
-### Card 4: Overflow
+### Card 3: Overflow
 
 *Turns unused compute into damage.*
 
@@ -849,19 +760,19 @@ Projectile. On hit: if the target has any debuff (Vulnerable, Corrupt, Mark), th
 |---|---|
 | Lane | Function (ranged) |
 | Card class | special |
-| Cost | 5 |
+| Cost | 5 + half remaining Compute Rate Limit |
 | Cooldown | 820ms |
 | Damage | 0.5 × remaining Compute Rate Limit |
 
-Projectile. Deals damage equal to half your remaining Compute Rate Limit (after paying the 5 cost).
+Projectile. After paying the printed 5 cost, consumes half of the remaining Compute Rate Limit and deals damage equal to that consumed amount. This makes Overflow a deliberate finisher rather than a cheap add-on.
 
 **Damage examples (base rate limit 96):**
 
-| Compute remaining (after cost) | Damage |
-|---|---|
-| 91 (first play, nothing else spent) | 45 |
-| 50 (after playing some cards) | 25 |
-| 20 (low compute) | 10 |
+| Compute remaining after 5 cost | Extra compute consumed | Damage |
+|---|---|---|
+| 91 (first play, nothing else spent) | 45 | 45 |
+| 50 (after playing some cards) | 25 | 25 |
+| 20 (low compute) | 10 | 10 |
 
 **Why this is flexible:** Overflow rewards any deck that plays few expensive cards. It creates a build tension: running cheap melee cards (Slash 18, Backstab 20, Expose 15) leaves more compute for Overflow. Running expensive ranged cards (Bolt 40, Detonate 45) leaves less.
 
@@ -877,7 +788,7 @@ Projectile. Deals damage equal to half your remaining Compute Rate Limit (after 
 
 ---
 
-### Card 5: Momentum
+### Card 4: Momentum
 
 *Rewards aggressive dashing.*
 
@@ -910,13 +821,12 @@ Counter resets each Active Window.
 - Phase Shift + Dash → Momentum: Double movement tools = lots of dashes, cheap Momentum
 - Singularity → Momentum: Dash into grouped enemies, cheap Momentum, melee the cluster
 - Any build that fights aggressively → Momentum: If you Dash offensively, Momentum is good value
-- Thorns/Fortify → Momentum: Dash into enemies, they hit you (Thorns/absorbed by Shield), Momentum is cheap
 
 **From Slay the Spire:** This is the **Finisher** pattern — a card that counts a universal action (playing attacks, in StS; dashing, here) and rewards you for doing more of it. It turns an implicit play pattern into an explicit reward.
 
 ---
 
-### Card 6: Surge
+### Card 5: Surge
 
 *Gets cheaper the more cards you've played this Active Window.*
 
@@ -954,38 +864,7 @@ Projectile with small splash (80px, 15 splash damage). Cost decreases by 4 for e
 
 ---
 
-### Card 7: Blood Price
-
-*Spend health for raw power.*
-
-| Property | Value |
-|---|---|
-| Lane | Statement (melee) |
-| Card class | special |
-| Cost | 0 compute |
-| Cooldown | 600ms |
-| Damage | 25 + (Integrity spent: 15) |
-
-Melee arc. Costs 0 compute but spends **15 Integrity** directly. Deals 25 base + 15 (from the health spent) = 40 damage.
-
-**Why 40 damage?** That's the same as Bolt, but it costs HP instead of compute. It's a resource conversion: Integrity → damage.
-
-**Why this is flexible:** Blood Price converts one resource (health) into another (damage). Any card that protects or restores your health becomes a partner.
-
-**Cross-archetype partners:**
-- Fortify (Shield) → Blood Price: Shield absorbs enemy hits, Blood Price spends your real HP. You need to manage both pools
-- Spike (Thorns) → Blood Price: You're taking damage anyway (from Blood Price and from enemies), Thorns converts enemy hits into reflected damage
-- Shop healing → Blood Price: Spend Bug Bounty Credits on Integrity repair between arenas to sustain the Blood Price economy
-- Iterate → Blood Price: Blood Price deals 40 damage regardless of ramp. Early deployment when Iterate is weak, Blood Price carries. Later, Iterate surpasses it
-- Phase Shift → Blood Price: Cloak avoids taking MORE damage from enemies while you're at low HP from Blood Price
-
-**Design tension:** Blood Price creates a "death clock" — every play brings you closer to 0 HP. This makes Shield, healing, and avoidance (Phase Shift, Dash) more valuable. It pairs with everything that keeps you alive.
-
-**From Slay the Spire:** This is the **Rupture + Hemokinesis + Blood Letting** archetype. Self-damage as a cost creates an entire ecosystem of cards that mitigate or exploit that self-damage. It's one of the deepest archetypes in StS because it touches every other system.
-
----
-
-### Card 8: Overwhelm
+### Card 6: Overwhelm
 
 *Rewards being surrounded.*
 
@@ -1015,15 +894,13 @@ Melee arc. Counts enemies within melee range (~166px, same as Slash's reach). Ea
 **Cross-archetype partners:**
 - Singularity → Overwhelm: Pull enemies to a point, walk into the cluster, Overwhelm hits for 40+
 - Shockwave → Overwhelm: Wait... Shockwave pushes enemies AWAY. Anti-synergy! Unless you Overwhelm first, then Shockwave to create space. Order matters.
-- Fury → Overwhelm: Both reward being surrounded. They naturally coexist in a "brawler" deck
-- Thorns (Spike) → Overwhelm: Being surrounded triggers Thorns on everyone, and Overwhelm deals bonus damage for the crowd
 - Corrupt → Overwhelm: Corrupt slows enemies so they cluster around you longer
 
 **From Slay the Spire:** This is the **Cleave + Whirlwind** pattern — cards that are explicitly about being in the middle of a swarm. It's the opposite of the ranged/kiting playstyle and creates a distinctly different feel.
 
 ---
 
-### Card 9: Resonance
+### Card 7: Resonance
 
 *Copies the last debuff applied.*
 
@@ -1060,7 +937,7 @@ Projectile. On hit: applies the **same debuff** that was most recently applied t
 
 ---
 
-### Card 10: Precision
+### Card 8: Precision
 
 *Rewards extreme distance — punishes normal range.*
 
@@ -1114,15 +991,13 @@ Projectile. Only starts scaling above 100px. Damage is based on distance between
 | # | Name | Lane | Class | Cost | CD | Dmg | Key Mechanic |
 |---|---|---|---|---|---|---|---|
 | 16 | Conduit | Statement | special | 20 | 400ms | 8+10×debuffs | Bonus per debuff type on target |
-| 17 | Fury | Statement | special | 15 | 350ms | 10+6×hits | Bonus per hit taken this window |
-| 18 | Chain Lightning | Function | special | 30 | 900ms | 18/bounce | Bounces between debuffed enemies (×3) |
-| 19 | Overflow | Function | special | 5 | 820ms | 0.5×compute | Damage scales with remaining compute |
-| 20 | Momentum | Statement | special | 25−3×dash | 350ms | 20 | Cost drops per Dash this window |
-| 21 | Surge | Function | special | 40−4×plays | 820ms | 30 | Cost drops per card played this window |
-| 22 | Blood Price | Statement | special | 0 | 600ms | 40 | Costs 15 Integrity instead of compute |
-| 23 | Overwhelm | Statement | special | 20 | 350ms | 8+7×nearby | Bonus per enemy in melee range |
-| 24 | Resonance | Function | special | 18 | 820ms | 5 | Copies last debuff applied this window |
-| 25 | Precision | Function | special | 25 | 820ms | 5+0.2×(dist−100) | Only beats Bolt at 300px+, max 85 at 500px |
+| 17 | Chain Lightning | Function | special | 30 | 900ms | 18/bounce | Bounces between debuffed enemies (×3) |
+| 18 | Overflow | Function | special | 5 + half remaining compute | 820ms | 0.5×compute | Consumes and converts remaining compute |
+| 19 | Momentum | Statement | special | 25−3×dash | 350ms | 20 | Cost drops per Dash this window |
+| 20 | Surge | Function | special | 40−4×plays | 820ms | 30 | Cost drops per card played this window |
+| 21 | Overwhelm | Statement | special | 20 | 350ms | 8+7×nearby | Bonus per enemy in melee range |
+| 22 | Resonance | Function | special | 18 | 820ms | 5 | Copies last debuff applied this window |
+| 23 | Precision | Function | special | 25 | 820ms | 5+0.2×(dist−100) | Only beats Bolt at 300px+, max 85 at 500px |
 
 ---
 
@@ -1139,19 +1014,13 @@ Unlike First Pass combos (A → B), Second Pass combos emerge from shared state.
 ### Deck: The Storm
 
 **Core:** Trim + Slash + Expose + Surge + Overflow
-**Flow:** Trim draws cards (Statement) → Slash/Expose are cheap melee (Statement) → many cards played means Surge is cheap (Function) → remaining compute fuels Overflow (Function)
-**Why it works:** This is the Slay the Spire "zero-cost storm" pattern. Play many cheap cards, then close with efficiently-costed finishers.
-
-### Deck: The Berserker
-
-**Core:** Blood Price + Fury + Overwhelm + Spike + Fortify
-**Flow:** Let enemies surround you → Fury scales from hits → Overwhelm scales from proximity → Spike reflects damage → Blood Price converts HP to damage → Fortify keeps you alive
-**Why it works:** Every card rewards being in danger. The more enemies hit you, the stronger you get. Fortify is the safety valve.
+**Flow:** Trim draws cards (Statement) → Slash/Expose are cheap melee (Statement) → many cards played means Surge is cheap (Function) → remaining compute fuels Overflow as a finisher (Function)
+**Why it works:** This is the Slay the Spire "zero-cost storm" pattern. Play many cheap cards, then close with efficiently-costed finishers. Overflow now spends a large chunk of remaining compute, so it is the closer rather than a free extra shot.
 
 ### Deck: The Sniper
 
 **Core:** Precision + Shockwave + Corrupt + Tag + Overflow
-**Flow:** Corrupt slows enemies at range → Shockwave pushes them back → maintain 400+ px distance → Precision deals 65-85 damage → Tag marks from afar → Overflow uses leftover compute
+**Flow:** Corrupt slows enemies at range → Shockwave pushes them back → maintain 400+ px distance → Precision deals 65-85 damage → Tag marks from afar → Overflow converts leftover compute into a finishing shot
 **Why it works:** Every card rewards keeping enemies at extreme range. Corrupt's slow prevents them from closing. Shockwave creates distance. Precision converts extreme distance to damage. But you must actively kite — at normal range, Precision is terrible (25 damage at 200px).
 
 ### Deck: The Architect
@@ -1174,7 +1043,7 @@ Unlike First Pass combos (A → B), Second Pass combos emerge from shared state.
 
 Beyond First Pass state tracking:
 
-- **Per-Active-Window counters:** hits taken, cards played, dashes performed
+- **Per-Active-Window counters:** cards played, dashes performed
 - **Last debuff applied:** type and parameters, for Resonance
 - **Distance calculation:** between player and projectile impact point, for Precision
 
@@ -1183,8 +1052,7 @@ Beyond First Pass state tracking:
 These Second Pass cards can't use a simple `damage` field — they need runtime calculation:
 
 - Conduit: reads enemy debuff count at hit time
-- Fury: reads player damage-taken counter
-- Overflow: reads current Compute Rate Limit at play time
+- Overflow: reads current Compute Rate Limit at play time and consumes half of the remaining Compute Rate Limit
 - Momentum: reads dash counter for cost calculation
 - Surge: reads cards-played counter for cost calculation
 - Overwhelm: reads nearby enemy count at hit time
@@ -1216,8 +1084,6 @@ interface CardPlayState {
   cardsPlayedThisWindow: number;
   computeRemaining: number;
   allotmentRemaining: number;
-  shieldCurrent: number;
-  hitsTakenThisWindow: number;
 }
 
 interface CardHitState {
@@ -1230,10 +1096,8 @@ interface CardHitState {
 ### Balance notes for Second Pass
 
 - **Conduit** at 38 max (3 debuffs) is strong but requires applying all three debuff types to one target — significant setup
-- **Fury** at 40 (5 hits) requires taking 5 × 14 = 70 damage. Even with Shield, that's a huge health tax
 - **Chain Lightning** requires enemies to have debuffs AND be within 200px of each other — the grouping requirement is real
-- **Overflow** at 45 compute remaining costs only 5 but requires you to have barely spent anything — only good early in a window
-- **Blood Price** at 40 damage for 0 compute is efficient but the 15 HP cost means you can only play it ~6 times before you're at 10 HP
+- **Overflow** at 45 damage now consumes roughly 50 total Compute Rate Limit including the printed 5 cost, making it a deliberate finisher rather than free efficiency
 - **Precision** at 72 requires 400px distance — most combat happens at 100-200px, so this is hard to achieve consistently
 - **Surge** reaches minimum cost (5) at 9 cards played — that's an expensive setup for one cheap finisher
 
@@ -1242,6 +1106,8 @@ interface CardHitState {
 ## THIRD PASS: Scaffolds (Passive Build Modifiers)
 
 *Persistent enchantments that reshape how your deck functions.*
+
+**Current filter:** Scaffolds that grant Shield, reward Integrity damage, or trigger from Shield breaking should be considered deprioritized for the same reason as the Shield/Thorns/health-as-resource cards. They may be interesting later, but they push the player toward feeling tanky or optimizing around damage intake.
 
 ### What are Scaffolds?
 
@@ -1300,12 +1166,12 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **Decks it punishes:**
 - Expensive ranged decks (Bolt 40, Detonate 45 — you won't reach 5 cards)
-- Blood Price decks (0 compute but slow 600ms CD)
+- Slow single-card decks that do not reach the 5-card threshold
 - Any deck that runs 2-3 expensive cards per window
 
 **Numerical example:** A window where you play Slash, Trim (draw), Slash, Expose, Backstab = 5 cards. The first Slash returns to your queue for free. You now have a 6th melee play that costs 0 compute — effectively a bonus Slash.
 
-**Synergy highlights:** The free recycled card creates compelling combos with cards that are expensive for their lane. A free Iterate at ramped damage (e.g., 45 damage for 0 compute) is extremely efficient. A free Shatter with Shield up (e.g., 70 damage for 0 compute) is also very strong. Since the recycled card is always your *first* discarded Statement, you have some control over what gets recycled — lead with your best melee card.
+**Synergy highlights:** The free recycled card creates compelling combos with cards that are expensive for their lane. A free Iterate at ramped damage (e.g., 45 damage for 0 compute) is extremely efficient. Since the recycled card is always your *first* discarded Statement, you have some control over what gets recycled — lead with your best melee card.
 
 **From Slay the Spire:** This is the **Hovering Kite / TURBO** relic pattern — reward a specific play pattern (playing many cards) with a resource refund. It's also similar to the **Ironclad's Exhume** — recovering a used card. The "free" aspect mirrors the satisfaction of StS storm turns where accumulated discounts make cards cost 0.
 
@@ -1320,7 +1186,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **What "double-cast" means:**
 - **Offensive Function cards** (Bolt, Detonate, Singularity, Tag, Corrupt, Chain Lightning, Precision, Overflow, Surge): The card fires twice in rapid succession (~150ms apart). You pay the cost once. Both casts resolve independently — separate projectile, separate hit detection, separate on-hit effects. Lane cooldown starts after the second cast.
-- **Utility Function cards** (Refund, Phase Shift, Fortify, Spike): The card is cast for 0 compute instead. No double-cast (double Phase Shift or double Fortify would be awkward to define).
+- **Utility Function cards** (Refund, Phase Shift): The card is cast for 0 compute instead. No double-cast.
 
 **Qualifying cards (cost 30+):**
 
@@ -1331,13 +1197,11 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 | Singularity | 35 | Yes |
 | Phase Shift | 30 | Yes |
 | Surge | 40−4×plays | Yes (at 0-2 plays) |
-| Fortify | 25 | No |
 | Precision | 25 | No |
 | Tag | 15 | No |
 | Corrupt | 20 | No |
 | Chain Lightning | 30 | Yes |
 | Overflow | 5 | No |
-| Spike | 20 | No |
 
 **Expected double-casts per deployment:**
 
@@ -1354,7 +1218,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 - Any deck running expensive Function cards (30+ compute)
 
 **Decks it punishes:**
-- Cheap ranged decks (Refund costs 0, Tag costs 15, Corrupt costs 20, Fortify 25 — none qualify for the 30 threshold)
+- Cheap ranged decks (Refund costs 0, Tag costs 15, Corrupt costs 20 — none qualify for the 30 threshold)
 - Melee-heavy decks (Statement cards don't trigger this at all)
 - Overflow builds (Second Pass — Overflow costs 5, never triggers this)
 
@@ -1365,7 +1229,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **Why probability instead of guaranteed:** A guaranteed double-cast on every expensive card was too strong — it made Bolt decks strictly better than every other ranged build. The 33% chance introduces variance: sometimes you get the exciting double, sometimes you don't. You can't plan your entire strategy around it, so the base deck still needs to be good on its own. Overclock makes expensive Function decks better on average (~33% more value from qualifying cards) without making them dominant.
 
-**Design note — why 30 threshold:** Includes Bolt, Detonate, Singularity, Phase Shift, and Chain Lightning — the "meaningful investment" cards. Excludes cards under 30 (Tag 15, Corrupt 20, Fortify 25, Precision 25) which are cheap utility or setup tools. The threshold means you must commit real compute to roll the dice.
+**Design note — why 30 threshold:** Includes Bolt, Detonate, Singularity, Phase Shift, and Chain Lightning — the "meaningful investment" cards. Excludes cards under 30 (Tag 15, Corrupt 20, Precision 25) which are cheap utility or setup tools. The threshold means you must commit real compute to roll the dice.
 
 **Edge case: double Singularity.** Two gravity wells stacking creates an extremely strong pull. This is intentionally powerful but rare (~33% chance, and only if Singularity is in your hand).
 
@@ -1384,7 +1248,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **What it does:** The more different cards you've played this arena deployment, the harder everything hits. Running a diverse deck is rewarded with a percentage damage bonus that scales with all your damage sources.
 
-**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Shockwave, Corrupt, Iterate, Echo, Fortify, Shatter, Bastion, Tag, Execute, Spike, Conduit, Fury, Chain Lightning, Overflow, Momentum, Surge, Blood Price, Overwhelm, Resonance, Precision. (29 total, but max bonus caps at 10 unique.)
+**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Shockwave, Corrupt, Iterate, Echo, Tag, Execute, Conduit, Chain Lightning, Overflow, Momentum, Surge, Overwhelm, Resonance, Precision. (23 total, but max bonus caps at 10 unique.)
 
 **Damage bonus by unique cards in discard:**
 
@@ -1412,7 +1276,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 - Tight focused decks (3 card types = +12%)
 - Decks that rely on duplicating one combo pair
 
-**Why percent instead of flat:** A flat bonus (+2 per type) becomes less relevant as base damages scale higher — it's meaningful on Slash (23) but negligible on a ramped Iterate (50+) or Bastion (150). A percentage bonus scales proportionally with all damage sources, keeping Diversity relevant throughout the entire deployment.
+**Why percent instead of flat:** A flat bonus (+2 per type) becomes less relevant as base damages scale higher — it's meaningful on Slash (23) but less relevant on a ramped Iterate (50+). A percentage bonus scales proportionally with all damage sources, keeping Diversity relevant throughout the entire deployment.
 
 **Why cap at 10 instead of 7:** Diluting your deck with many card types has a real cost — less consistency, fewer copies of your best cards. A deck running 1 copy of 10 different cards in a 60-card deck will rarely see those cards. The higher cap (10 vs 7) makes the tradeoff worthwhile for players who commit to the diversity strategy.
 
@@ -1429,6 +1293,8 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 ### Scaffold 4: Conservation Protocol
 
 *"Waste not."*
+
+**Status:** Considered but deprioritized while player Shield builds are out of scope.
 
 **Trigger:** When an Active Window ends and you have 50+ Compute Rate Limit remaining.
 **Effect:** Gain 12 Shield (stacks with Fortify, respects 50 Shield cap).
@@ -1448,7 +1314,7 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 **Design tension:** This Scaffold says "do less, get more." It directly opposes Cascade Protocol (play more cards). Running both creates a contradiction — Cascade wants you to play 5+ cards (expensive), Conservation wants you to spend less than 46 compute. You can't do both in the same window.
 
-**Cross-card synergy:** Conservation Protocol + Shatter (First Pass). Shatter deals 10 + 2× Shield. Free 12 Shield from Conservation = Shatter deals 10 + 24 = 34 damage for 15 compute. Very efficient.
+**Cross-card synergy:** Conservation Protocol + Bastion (First Pass). Free Shield from Conservation can be saved across windows, then consumed by Bastion for a burst payoff. This is slower and less repeatable than the deprioritized Shatter loop.
 
 **From Slay the Spire:** This is the **Orichalcum** relic pattern — reward for NOT doing something (not blocking, here: not spending). In StS, Orichalcum gives Block when you end your turn without playing a Block card. Here, you get Shield when you end your window without spending.
 
@@ -1537,7 +1403,6 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 - Aggressive melee decks that Dash into combat (not away from it)
 - Momentum (Second Pass) — both reward Dash frequency
 - Overwhelm (Second Pass) — Dash into enemy cluster, then rapid melee
-- Fury (Second Pass) — you're taking hits AND swinging faster
 - Backstab builds — Dash behind enemies, then rapid Backstabs at reduced CD
 
 **Decks it punishes:**
@@ -1557,6 +1422,8 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 
 *"Pain is fuel."*
 
+**Status:** Considered but deprioritized while health-as-resource and damage-intake builds are out of scope.
+
 **Trigger:** Each time you take Integrity damage (not Shield damage).
 **Effect:** Your next melee attack deals +50% damage. Stacks up to 2 times.
 
@@ -1571,9 +1438,7 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 | 2 | × 2.0 (cap) |
 
 **Decks it rewards:**
-- Blood Price builds (you're spending HP voluntarily, each spend triggers Berserker)
-- Fortify + melee decks (Shield absorbs hits → when Shield breaks, Integrity damage triggers Berserker)
-- Fury (Second Pass) — both reward taking damage
+- Aggressive melee decks that intentionally accept Integrity damage
 - Overwhelm (Second Pass) — surrounded, taking hits, dealing bonus melee damage
 
 **Decks it punishes:**
@@ -1673,7 +1538,7 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 
 **Decks it punishes:**
 - Any melee deck (entering melee range resets stacks)
-- Overwhelm, Fury, Backstab (all require close range)
+- Overwhelm, Backstab (both require close range)
 - Singularity (pulls enemies toward you, risk of reset)
 - Berserker Protocol (opposite playstyle)
 
@@ -1689,15 +1554,16 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 
 *"The best defense is another offense."*
 
+**Status:** Considered but deprioritized while player Shield builds are out of scope.
+
 **Trigger:** When your Shield drops to 0 (from any amount above 0).
 **Effect:** Immediately draw 2 bonus cards (1 into each queue).
 
 **What it does:** When your Shield breaks, you get a burst of new options. It turns losing your defensive buffer into an offensive opportunity.
 
 **Decks it rewards:**
-- Fortify + Shatter (build Shield, Shatter for damage, when Shield breaks → draw 2)
 - Spike + Fortify (Shield absorbs hits while Thorns deals damage, when Shield breaks → draw 2)
-- Conservation Protocol (gain free Shield, spend it on Shatter, when it breaks → draw 2)
+- Conservation Protocol (gain free Shield, then let enemies break it to draw 2)
 - Any deck that cycles Shield frequently
 
 **Decks it punishes:**
@@ -1722,15 +1588,15 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 | 1 | Cascade Protocol | Play 5+ cards in one window | Recycle first discarded Statement (free) | Cheap spam decks |
 | 2 | Overclock License | Function card costs 30+ compute | 33% chance to double-cast (offensive) or free-cast (utility) | Expensive ranged |
 | 3 | Diversity Protocol | Passive | +4% damage per unique card in discard (max +40%, 10 types) | Varied decks |
-| 4 | Conservation Protocol | End window with 50+ compute | Gain 12 Shield | Cheap/few-play decks |
+| 4 | Conservation Protocol | End window with 50+ compute | Gain 12 Shield | Deprioritized Shield builds |
 | 5 | Symbiosis Engine | Play both lanes in one window | Draw 1 bonus card | Balanced decks |
 | 6 | Decay Protocol | Passive | Debuffed enemies lose 2% HP/s | Debuff builds |
 | 7 | Momentum Core | Dash during window | −60ms melee CD per Dash (floor 150ms) | Aggressive melee |
-| 8 | Berserker Protocol | Take Integrity damage | Next melee +50% (max ×2.0) | Masochist melee |
+| 8 | Berserker Protocol | Take Integrity damage | Next melee +50% (max ×2.0) | Deprioritized damage-intake builds |
 | 9 | Convergence Matrix | 3+ enemies within 150px | +30% damage to grouped enemies | AoE/grouping |
 | 10 | Entropy Engine | Every 4th card | That card costs 0 | Universal |
 | 11 | Precision Protocol | Function damage from 300+ px | +8% Function damage per stack (max +40%) | Ranged kiting |
-| 12 | Second Wind | Shield drops to 0 | Draw 2 cards (1 per queue) | Shield cycling |
+| 12 | Second Wind | Shield drops to 0 | Draw 2 cards (1 per queue) | Deprioritized Shield builds |
 
 ### Scaffold Conflict Map
 
@@ -1794,13 +1660,6 @@ Scaffolds that create deckbuilding tension when chosen together:
 - Detonate only efficient when Singularity groups 5+ enemies (30+ each)
 - Deck composition: Bolt-heavy, Singularity for grouping, Detonate as group payoff
 
-**The Blender (Momentum Core + Berserker + Second Wind):**
-- Run aggressive melee (Slash, Iterate, Backstab, Shatter)
-- Momentum Core speeds up melee per Dash
-- Berserker boosts damage when hit
-- Second Wind draws cards when Shield breaks
-- Fortify to build Shield → enemies break it → Second Wind triggers → Berserker stacked → rapid melee with Momentum Core
-
 **The Plague (Decay + Diversity + Symbiosis):**
 - Run debuff-heavy deck (Expose, Tag, Corrupt, Resonance, Chain Lightning)
 - Decay ticks passive damage on everything debuffed
@@ -1808,7 +1667,7 @@ Scaffolds that create deckbuilding tension when chosen together:
 - Symbiosis keeps both lanes fed
 - Every enemy you touch starts dying slowly
 
-**The Minimalist (Conservation + Overclock + Precision Protocol):**
+**The Minimalist (Conservation + Overclock + Precision Protocol) — deprioritized while Shield is out of scope:**
 - Run a deck with 1-2 expensive ranged cards and nothing else
 - Play one Bolt per window, end with 50+ compute → Conservation Shield
 - Bolt (40 cost) has 33% chance to double-cast via Overclock
