@@ -524,7 +524,10 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    this.timeSubsystem("updateProjectiles", () => this.updateProjectiles(dt));
+    if (this.timeSubsystem("updateProjectiles", () => this.updateProjectiles(dt))) {
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
+      return;
+    }
     this.updateVisuals();
     this.updateExtractionPrompt();
     this.updateCooldownIndicators();
@@ -2417,15 +2420,16 @@ export class ArenaScene extends Phaser.Scene {
     return current + Math.sign(target - current) * maxDelta;
   }
 
-  private updateProjectiles(dt: number): void {
+  private updateProjectiles(dt: number): boolean {
     const survivors: Projectile[] = [];
 
-    this.projectiles.forEach((projectile) => {
+    for (let index = 0; index < this.projectiles.length; index += 1) {
+      const projectile = this.projectiles[index];
       projectile.ttl -= dt;
 
       if (projectile.ttl <= 0) {
         projectile.sprite.destroy();
-        return;
+        continue;
       }
 
       if (
@@ -2435,7 +2439,7 @@ export class ArenaScene extends Phaser.Scene {
         projectile.sprite.y > this.arenaHeight
       ) {
         projectile.sprite.destroy();
-        return;
+        continue;
       }
 
       if (projectile.type === "hopper-shot") {
@@ -2454,26 +2458,31 @@ export class ArenaScene extends Phaser.Scene {
 
           if (wasInvulnerable) {
             this.createHopperShotDissipateVisual(impactX, impactY);
-            return;
+            continue;
           }
 
           const died = gameState.applyDamage(projectile.damage);
           this.cameras.main.shake(130, 0.0032);
           if (died) {
+            this.projectiles = [
+              ...survivors,
+              ...this.projectiles.slice(index + 1),
+            ];
             if (this.tryCollapse()) {
-              return;
+              return true;
             }
 
             this.beginDeathSequence(
               "decommissioned",
               "Integrity collapse. The corporations reclaimed your body from the arena floor.",
             );
+            return true;
           }
-          return;
+          continue;
         }
 
         survivors.push(projectile);
-        return;
+        continue;
       }
 
       const impacted = this.drones.find((drone) => {
@@ -2493,13 +2502,14 @@ export class ArenaScene extends Phaser.Scene {
         this.applyRangedSiphonImpact(impactX, impactY, impacted);
         this.hitDrone(impacted, projectile.damage, angle, 180);
         projectile.sprite.destroy();
-        return;
+        continue;
       }
 
       survivors.push(projectile);
-    });
+    }
 
     this.projectiles = survivors;
+    return false;
   }
 
   private createHopperShotDissipateVisual(x: number, y: number): void {
