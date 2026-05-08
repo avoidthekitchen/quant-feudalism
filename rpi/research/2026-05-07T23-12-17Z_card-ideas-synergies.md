@@ -187,19 +187,24 @@ Projectile. On impact: creates a gravity well (180px radius) lasting 1.2s. Enemi
 | Card class | special |
 | Cost | 45 |
 | Cooldown | 1000ms |
-| Damage | 20 |
+| Damage | 10 + (4 × enemies in explosion radius) |
 
-Projectile. On impact: AoE explosion (160px radius) dealing 20 base damage.
+Projectile. On impact: AoE explosion (160px radius). Each enemy hit takes 10 base + 4 damage per enemy in the explosion radius.
 
-**Bonus:** +15 damage per enemy hit by the explosion. This stacks multiplicatively with enemy count — not per-enemy bonus, but per-enemy-hit.
+**Damage per enemy by group size:**
 
-Wait, let me clarify the math:
-- 1 enemy: 20 damage
-- 2 enemies: 20 + 15 = 35 to each
-- 3 enemies: 20 + 30 = 50 to each
-- 5 enemies: 20 + 75 = 95 to each
+| Enemies in radius | Damage each | Total damage | vs Bolt splash (20 each) |
+|---|---|---|---|
+| 1 | 14 | 14 | Weaker |
+| 2 | 18 | 36 | Weaker |
+| 3 | 22 | 66 | Weaker |
+| 4 | 26 | 104 | Weaker per-enemy |
+| 5 | 30 | 150 | **Stronger** — the AoE payoff |
+| 6 | 34 | 204 | Stronger |
 
-**This is the highest AoE damage potential in the game** but requires setup to group enemies.
+**Design intent:** Detonate is the "group punishment" card. At 1-4 enemies, it's weaker than Bolt's splash (20 per enemy). Only at 5+ grouped enemies does it become the most efficient AoE in the game. This makes Singularity essential for Detonate builds — without grouping, Detonate is overpriced (45 compute for 14 damage against a single target).
+
+**Why it's not the highest damage spell:** Even at 5 enemies (30 each), Detonate deals less per-target than single-target setup cards: Execute (70), Bastion (150), Bolt direct hit (40). The value comes from total damage across many targets, not spike damage on one target. This is the correct AoE niche — efficient against groups, weak against singles.
 
 #### Shockwave
 
@@ -248,7 +253,7 @@ Projectile. On hit: applies 1 stack of **Corrupt** debuff.
 1. Singularity fires into enemy cluster
 2. Enemies pulled to center over 1.2s
 3. Detonate hits the clump
-4. 5 enemies: 95 damage each = 475 total
+4. 5 enemies: 30 damage each = 150 total (only efficient because they're grouped)
 
 **Push + DoT (Shockwave → Corrupt):**
 1. Enemies surround player
@@ -259,7 +264,7 @@ Projectile. On hit: applies 1 stack of **Corrupt** debuff.
 **Cross-archetype: Singularity → Detonate on Exposed enemies:**
 1. Expose one or more enemies
 2. Singularity groups them
-3. Detonate for 95 each × 1.4 = **133 per enemy** (5 enemies)
+3. Detonate for 30 each × 1.4 = **42 per enemy** (5 enemies = 210 total)
 
 ---
 
@@ -555,7 +560,7 @@ This creates a "tank" playstyle where you bait enemies into attacking you.
 | 2 | Backstab | Statement | special | 20 | 350ms | 15 | 2.5× from behind (37 total) |
 | 3 | Expose | Statement | special | 15 | 350ms | 8 | Melee arc, target takes +40% damage for 6s |
 | 4 | Singularity | Function | special | 35 | 900ms | 5 | Pull enemies to impact for 1.2s |
-| 5 | Detonate | Function | special | 45 | 1000ms | 20 | AoE, +15 dmg per enemy hit |
+| 5 | Detonate | Function | special | 45 | 1000ms | 10+4×enemies | AoE, scales with grouped enemies (strong at 5+) |
 | 6 | Shockwave | Statement | special | 25 | 500ms | 10 | Push enemies 120px away |
 | 7 | Corrupt | Function | special | 20 | 820ms | 5 | DoT 12 + slow 30% (×3 stacks) |
 | 8 | Iterate | Statement | special | 20 | 350ms | 5+8N | +8 damage per play this deployment |
@@ -587,7 +592,7 @@ The most interesting combos come from mixing archetypes:
 | Combo | Cards | Setup | Payoff | Total burst |
 |---|---|---|---|---|
 | **Shadow Assassin** | Phase Shift + Expose + Backstab | Teleport behind, expose | Backstab from behind × 1.4 | 60 on one target (0.35s) |
-| **Nuke** | Singularity + Expose + Detonate | Group + expose | AoE burst × 1.4 | ~133/enemy (5 enemies) |
+| **Nuke** | Singularity + Expose + Detonate | Group + expose | AoE burst × 1.4 | ~42/enemy (5 enemies) |
 | **Tank Burst** | Fortify × 2 + Expose + Bastion | Build shield, expose | Consume shield for burst | 126 on one target |
 | **Executioner** | Tag × 5 + Expose + Execute | Stack marks, expose | Consume marks | 138 on one target |
 | **Ramp Echo** | Iterate × 5 + Echo | Ramp over deployment | Copy ramped damage | 135 in one window |
@@ -654,7 +659,7 @@ Damage resolution needs to apply multipliers in a defined order:
 4. State modifiers (Vulnerable: × 1.4)
 5. Shield-based modifiers (Shatter: +2 × Shield, Bastion: × 3 × consumed Shield)
 6. Mark-based modifiers (Execute: +12 × Marks)
-7. Detonate bonus (+15 × enemies in radius)
+7. Detonate bonus (+4 × enemies in radius, only efficient at 5+ enemies)
 
 ### CardId union type
 
@@ -1057,7 +1062,7 @@ Projectile. On hit: applies the **same debuff** that was most recently applied t
 
 ### Card 10: Precision
 
-*Rewards distance.*
+*Rewards extreme distance — punishes normal range.*
 
 | Property | Value |
 |---|---|
@@ -1065,31 +1070,42 @@ Projectile. On hit: applies the **same debuff** that was most recently applied t
 | Card class | special |
 | Cost | 25 |
 | Cooldown | 820ms |
-| Damage | 12 + 0.15 × distance to target (px) |
+| Damage | 5 + 0.2 × (distance − 100), minimum 5 |
 
-Projectile. Deals bonus damage based on distance between player and target at time of impact, capped at 400px.
+Projectile. Only starts scaling above 100px. Damage is based on distance between player and target at time of impact, capped at 500px. Below 100px, deals only 5 damage (minimum).
 
 **Damage by distance:**
 
-| Distance | Damage |
-|---|---|
-| 50px (melee range) | 20 (weak) |
-| 100px | 27 |
-| 200px | 42 (matches Bolt) |
-| 300px | 57 |
-| 400px (cap) | 72 |
+| Distance | Damage | Context |
+|---|---|---|
+| 0-100px | 5 | Terrible — worse than every card in the game |
+| 150px | 15 | Still weak |
+| 200px | 25 | Weaker than Bolt (40) |
+| 250px | 35 | Getting closer to Bolt |
+| 300px | 45 | Matches Bolt |
+| 400px | 65 | Strong — the payoff begins |
+| 500px (cap) | 85 | Very strong — extreme range reward |
 
-**Why this is flexible:** Precision rewards a specific playstyle (kiting, fighting at range) rather than pairing with a specific card. Any card that creates distance from enemies is a partner.
+**Damage tier comparison:**
+
+| Range | Best card | Why |
+|---|---|---|
+| 0-150px (melee) | Slash, Backstab, Expose | Melee dominates |
+| 100-250px (normal ranged) | Bolt | Bolt is king at standard combat range |
+| 300px | Bolt ≈ Precision | Break-even point |
+| 400px+ (extreme range) | Precision | Reward for maintaining extreme distance |
+
+**Why this is flexible:** Precision rewards a specific playstyle (extreme-range kiting) rather than pairing with a specific card. Any card that creates or maintains distance from enemies is a partner.
 
 **Cross-archetype partners:**
-- Shockwave → Precision: Push enemies away, then Precision for bonus damage from distance
-- Phase Shift → Precision: Teleport away from enemies (if aimed away), then Precision from max range
-- Corrupt (slow) → Precision: Slowed enemies can't close distance, Precision stays high damage
-- Singularity → Precision (anti-synergy!): Pulls enemies toward you, reducing Precision's damage. Unless you fire Precision INTO the singularity from far away
+- Shockwave → Precision: Push enemies away, then Precision from newly-created distance
+- Phase Shift → Precision: Teleport away from enemies, fire Precision from 400+ px
+- Corrupt (slow) → Precision: Slowed enemies can't close distance, you maintain extreme range
+- Singularity → Precision (anti-synergy!): Pulls enemies toward you, destroying Precision's damage
 
-**Design tension:** Precision is the opposite of Overwhelm. One rewards distance, the other rewards proximity. You can't run both effectively. This creates a meaningful deckbuilding fork: close-range brawler OR long-range sniper.
+**Design tension:** Precision is the opposite of Overwhelm. One rewards extreme distance, the other rewards proximity. You can't run both effectively. This creates a meaningful deckbuilding fork: close-range brawler OR long-range sniper. The key difference from before: Precision is **actively bad** at normal combat ranges (25 damage at 200px vs Bolt's 40). You must commit to the kiting playstyle for it to be worth its deck slot.
 
-**From Wizards of Legends:** This mirrors the design of long-range spell specializations — investing in distance-based damage changes your entire movement pattern and makes kiting a damage source rather than just defense.
+**From Wizards of Legends:** This mirrors the design of long-range spell specializations — investing in distance-based damage changes your entire movement pattern and makes kiting a damage source rather than just defense. The "bad at normal range" tuning mirrors WoL's design where specialized spells are terrible outside their niche.
 
 ---
 
@@ -1106,7 +1122,7 @@ Projectile. Deals bonus damage based on distance between player and target at ti
 | 22 | Blood Price | Statement | special | 0 | 600ms | 40 | Costs 15 Integrity instead of compute |
 | 23 | Overwhelm | Statement | special | 20 | 350ms | 8+7×nearby | Bonus per enemy in melee range |
 | 24 | Resonance | Function | special | 18 | 820ms | 5 | Copies last debuff applied this window |
-| 25 | Precision | Function | special | 25 | 820ms | 12+0.15×dist | Bonus damage from distance (cap 400px) |
+| 25 | Precision | Function | special | 25 | 820ms | 5+0.2×(dist−100) | Only beats Bolt at 300px+, max 85 at 500px |
 
 ---
 
@@ -1135,14 +1151,14 @@ Unlike First Pass combos (A → B), Second Pass combos emerge from shared state.
 ### Deck: The Sniper
 
 **Core:** Precision + Shockwave + Corrupt + Tag + Overflow
-**Flow:** Corrupt slows enemies at range → Shockwave pushes them back → Precision deals distance-scaled damage → Tag marks from afar → Overflow uses leftover compute
-**Why it works:** Every card rewards keeping enemies at range. Corrupt's slow prevents them from closing. Shockwave creates distance. Precision converts distance to damage.
+**Flow:** Corrupt slows enemies at range → Shockwave pushes them back → maintain 400+ px distance → Precision deals 65-85 damage → Tag marks from afar → Overflow uses leftover compute
+**Why it works:** Every card rewards keeping enemies at extreme range. Corrupt's slow prevents them from closing. Shockwave creates distance. Precision converts extreme distance to damage. But you must actively kite — at normal range, Precision is terrible (25 damage at 200px).
 
 ### Deck: The Architect
 
 **Core:** Singularity + Detonate + Expose + Chain Lightning + Resonance
-**Flow:** Singularity groups enemies → Expose one target (Statement) → Resonance copies Vulnerable to another (Function) → Chain Lightning bounces between debuffed cluster → Detonate finishes
-**Why it works:** All about controlling enemy positioning and spreading debuffs through the group. The multipliers stack because every enemy is debuffed AND grouped.
+**Flow:** Singularity groups enemies → Expose one target (Statement) → Resonance copies Vulnerable to another (Function) → Chain Lightning bounces between debuffed cluster → Detonate finishes for 30+ per enemy
+**Why it works:** All about controlling enemy positioning and spreading debuffs through the group. Detonate only reaches its full potential (30+ per enemy) when 5+ enemies are grouped by Singularity. The multipliers stack because every enemy is debuffed AND grouped.
 
 ### Deck: The Ghost
 
@@ -1273,9 +1289,9 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 *"Play fast and loose."*
 
 **Trigger:** When you play 5+ cards in a single Active Window.
-**Effect:** Recycle the first discarded Statement card of that window back into the Statement queue.
+**Effect:** Recycle the first discarded Statement card of that window back into the Statement queue. **That card costs 0 compute when played.**
 
-**What it does:** After you've played 5 cards in a window, you get one of your melee cards back for free. It's not a new card — it's a card you already played, returned to your queue.
+**What it does:** After you've played 5 cards in a window, you get one of your melee cards back — and it's free. It's not a new card — it's a card you already played, returned to your queue at no cost.
 
 **Decks it rewards:**
 - Trim-heavy decks (draw engine = more cards played per window)
@@ -1287,9 +1303,11 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 - Blood Price decks (0 compute but slow 600ms CD)
 - Any deck that runs 2-3 expensive cards per window
 
-**Numerical example:** A window where you play Slash, Trim (draw), Slash, Expose, Backstab = 5 cards. The first Slash returns to your queue. You now have a 6th melee play for free.
+**Numerical example:** A window where you play Slash, Trim (draw), Slash, Expose, Backstab = 5 cards. The first Slash returns to your queue for free. You now have a 6th melee play that costs 0 compute — effectively a bonus Slash.
 
-**From Slay the Spire:** This is the **Hovering Kite / TURBO** relic pattern — reward a specific play pattern (playing many cards) with a resource refund. It's also similar to the **Ironclad's Exhume** — recovering a used card.
+**Synergy highlights:** The free recycled card creates compelling combos with cards that are expensive for their lane. A free Iterate at ramped damage (e.g., 45 damage for 0 compute) is extremely efficient. A free Shatter with Shield up (e.g., 70 damage for 0 compute) is also very strong. Since the recycled card is always your *first* discarded Statement, you have some control over what gets recycled — lead with your best melee card.
+
+**From Slay the Spire:** This is the **Hovering Kite / TURBO** relic pattern — reward a specific play pattern (playing many cards) with a resource refund. It's also similar to the **Ironclad's Exhume** — recovering a used card. The "free" aspect mirrors the satisfaction of StS storm turns where accumulated discounts make cards cost 0.
 
 ---
 
@@ -1297,26 +1315,63 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 
 *"Go big or go home."*
 
-**Trigger:** When you spend 40+ compute on a single card play.
-**Effect:** Your next Function card this Active Window costs 0 compute.
+**Trigger:** Passive. On every Function card play that costs 30+ compute.
+**Effect:** That card has a **33% chance to double-cast** — offensive cards fire twice in rapid succession; utility cards are cast for free.
 
-**What it does:** After you play one expensive card (Bolt 40, Detonate 45, Singularity 35, Phase Shift 30 — note: 30 doesn't qualify), your next ranged card is free.
+**What "double-cast" means:**
+- **Offensive Function cards** (Bolt, Detonate, Singularity, Tag, Corrupt, Chain Lightning, Precision, Overflow, Surge): The card fires twice in rapid succession (~150ms apart). You pay the cost once. Both casts resolve independently — separate projectile, separate hit detection, separate on-hit effects. Lane cooldown starts after the second cast.
+- **Utility Function cards** (Refund, Phase Shift, Fortify, Spike): The card is cast for 0 compute instead. No double-cast (double Phase Shift or double Fortify would be awkward to define).
+
+**Qualifying cards (cost 30+):**
+
+| Card | Cost | Qualifies? |
+|---|---|---|
+| Bolt | 40 | Yes |
+| Detonate | 45 | Yes |
+| Singularity | 35 | Yes |
+| Phase Shift | 30 | Yes |
+| Surge | 40−4×plays | Yes (at 0-2 plays) |
+| Fortify | 25 | No |
+| Precision | 25 | No |
+| Tag | 15 | No |
+| Corrupt | 20 | No |
+| Chain Lightning | 30 | Yes |
+| Overflow | 5 | No |
+| Spike | 20 | No |
+
+**Expected double-casts per deployment:**
+
+| Deck type | Qualifying Function plays/deployment | Expected double-casts |
+|---|---|---|
+| Bolt-heavy (10 Bolts) | 10 | ~3-4 |
+| Detonate build (5 Detonates) | 5 | ~1-2 |
+| Singularity + Detonate (3+3) | 6 | ~2 |
+| Mixed (4 Bolts + 2 Singularity + 2 Detonate) | 8 | ~2-3 |
 
 **Decks it rewards:**
-- Bolt-heavy decks (40 cost qualifies, then next Bolt is free = two Bolts for 40 instead of 80)
-- Detonate builds (45 cost qualifies, follow with free Singularity for grouping)
-- Any deck running expensive Function cards
+- Bolt-heavy decks (40 cost qualifies → ~33% chance of double Bolt = two projectiles with separate splash/siphon = double siphon refund potential)
+- Detonate builds (45 cost qualifies → ~33% chance of double Detonate = two AoE explosions against grouped enemies)
+- Any deck running expensive Function cards (30+ compute)
 
 **Decks it punishes:**
-- Cheap ranged decks (Refund costs 0, Tag costs 15, Corrupt costs 20 — none qualify)
-- Melee-heavy decks (Statement cards don't trigger this, and melee cards max out at 30 cost with Bastion)
+- Cheap ranged decks (Refund costs 0, Tag costs 15, Corrupt costs 20, Fortify 25 — none qualify for the 30 threshold)
+- Melee-heavy decks (Statement cards don't trigger this at all)
 - Overflow builds (Second Pass — Overflow costs 5, never triggers this)
 
-**Numerical example:** Bolt (40 compute) → triggers Overclock → next Function card free → play Tag (0 cost) for free Mark application. Or: Detonate (45) → triggers Overclock → free Bolt (normally 40) for a follow-up.
+**Numerical examples:**
+- Bolt (40 compute) → 33% chance → double Bolt fires → two projectiles, each dealing 40 direct + 20 splash, separate siphon calculations. Total: ~80 direct + ~40 splash + up to +36 siphon refund
+- Detonate (45 compute) → 33% chance → double Detonate → two AoE explosions against grouped enemies. 5 enemies hit twice: first cast 30 each, second cast 30 each = 300 total damage potential
+- Singularity (35 compute) → 33% chance → double Singularity → two gravity wells stacking. Extremely strong pull — intentionally powerful when it happens
 
-**Design note — why 40 threshold?** Bolt costs exactly 40. This means Bolt triggers it but Singularity (35) doesn't. This is intentional — Singularity is a setup card, not a "big spend." The threshold makes Bolt and Detonate the primary triggers, keeping the identity clear.
+**Why probability instead of guaranteed:** A guaranteed double-cast on every expensive card was too strong — it made Bolt decks strictly better than every other ranged build. The 33% chance introduces variance: sometimes you get the exciting double, sometimes you don't. You can't plan your entire strategy around it, so the base deck still needs to be good on its own. Overclock makes expensive Function decks better on average (~33% more value from qualifying cards) without making them dominant.
 
-**From MtG:** This is the **Nexus of Fate / Omniscience** pattern — spend a lot upfront, then get free follow-up. In MtG terms, it's like casting a 6-mana spell that lets you cast your next spell for free.
+**Design note — why 30 threshold:** Includes Bolt, Detonate, Singularity, Phase Shift, and Chain Lightning — the "meaningful investment" cards. Excludes cards under 30 (Tag 15, Corrupt 20, Fortify 25, Precision 25) which are cheap utility or setup tools. The threshold means you must commit real compute to roll the dice.
+
+**Edge case: double Singularity.** Two gravity wells stacking creates an extremely strong pull. This is intentionally powerful but rare (~33% chance, and only if Singularity is in your hand).
+
+**Edge case: Surge at variable cost.** Surge starts at 40 (qualifies) and drops to 5 minimum (doesn't qualify). Whether Surge triggers Overclock depends on how many cards you've played this window — early Surge qualifies, late Surge doesn't.
+
+**From MtG:** This is the **Reverberate / Twincast** pattern with a **Mana Flare** twist — sometimes your expensive spells just... do more. In MtG terms, it's like having a chance to copy your own spell. The randomness mirrors mechanics like **Krark's Thumb** or **Chance Encounter** — gambling on your own power.
 
 ---
 
@@ -1325,35 +1380,45 @@ A Scaffold that's good in every deck is a bad Scaffold. Each one should make you
 *"Be versatile."*
 
 **Trigger:** Passive. Always active.
-**Effect:** Each unique card type in your discard pile grants +2 damage to all attacks. Maximum bonus: +14 (7 unique types).
+**Effect:** Each unique card type in your discard pile grants **+4% damage** to all attacks. Maximum bonus: +40% (10 unique types).
 
-**What it does:** The more different cards you've played this arena deployment, the harder everything hits. Running a diverse deck is rewarded with a flat damage bonus.
+**What it does:** The more different cards you've played this arena deployment, the harder everything hits. Running a diverse deck is rewarded with a percentage damage bonus that scales with all your damage sources.
 
-**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Shockwave, Corrupt, Iterate, Echo, Fortify, Shatter, Bastion, Tag, Execute, Spike, Conduit, Fury, Chain Lightning, Overflow, Momentum, Surge, Blood Price, Overwhelm, Resonance, Precision. (29 total, but max bonus caps at 7 unique.)
+**Unique card types:** Slash, Bolt, Trim, Refund, Phase Shift, Backstab, Expose, Singularity, Detonate, Shockwave, Corrupt, Iterate, Echo, Fortify, Shatter, Bastion, Tag, Execute, Spike, Conduit, Fury, Chain Lightning, Overflow, Momentum, Surge, Blood Price, Overwhelm, Resonance, Precision. (29 total, but max bonus caps at 10 unique.)
 
 **Damage bonus by unique cards in discard:**
 
-| Unique types | Bonus damage |
-|---|---|
-| 1 | +2 |
-| 2 | +4 |
-| 3 | +6 |
-| 4 | +8 |
-| 5 | +10 |
-| 6 | +12 |
-| 7+ | +14 (cap) |
+| Unique types | Bonus | Example: Slash (23) | Example: Bolt (40) |
+|---|---|---|---|
+| 1 | +4% | 24 | 42 |
+| 2 | +8% | 25 | 43 |
+| 3 | +12% | 26 | 45 |
+| 4 | +16% | 27 | 46 |
+| 5 | +20% | 28 | 48 |
+| 6 | +24% | 29 | 50 |
+| 7 | +28% | 29 | 51 |
+| 8 | +32% | 30 | 53 |
+| 9 | +36% | 31 | 54 |
+| 10+ | +40% (cap) | 32 | 56 |
 
 **Decks it rewards:**
-- Rainbow decks with 7+ different card types (even 1-2 copies of each)
+- Rainbow decks with 10+ different card types (even 1-2 copies of each)
 - Decks that naturally cycle through their whole deck (Trim draw engine)
 - Long arena deployments (more time to play different cards)
+- Decks that use Second Pass cards (Conduit, Resonance, Chain Lightning — these already reward variety)
 
 **Decks it punishes:**
-- Mono-card decks (15 Slash + 5 Bolt = 2 unique types = only +4)
-- Tight focused decks (3 card types = +6)
+- Mono-card decks (15 Slash + 5 Bolt = 2 unique types = only +8%)
+- Tight focused decks (3 card types = +12%)
 - Decks that rely on duplicating one combo pair
 
-**Design tension:** Diversity Protocol actively fights against focused archetypes. A Shadow Strike deck (Phase Shift + Backstab + maybe Expose) has 3 unique types (+6 bonus). Adding 4 more types dilutes the combo consistency but gives +14 to everything. Is it worth it?
+**Why percent instead of flat:** A flat bonus (+2 per type) becomes less relevant as base damages scale higher — it's meaningful on Slash (23) but negligible on a ramped Iterate (50+) or Bastion (150). A percentage bonus scales proportionally with all damage sources, keeping Diversity relevant throughout the entire deployment.
+
+**Why cap at 10 instead of 7:** Diluting your deck with many card types has a real cost — less consistency, fewer copies of your best cards. A deck running 1 copy of 10 different cards in a 60-card deck will rarely see those cards. The higher cap (10 vs 7) makes the tradeoff worthwhile for players who commit to the diversity strategy.
+
+**Design tension:** Diversity Protocol actively fights against focused archetypes. A Shadow Strike deck (Phase Shift + Backstab + maybe Expose) has 3 unique types (+12% bonus). Adding 7 more types dilutes the combo consistency but gives +40% to everything. Is it worth it?
+
+**Stacking with other multipliers:** Diversity is multiplicative with Vulnerable (+40%). A 40% Diversity bonus + 40% Vulnerable = 96% total damage increase. This is significant but requires substantial setup (10 unique cards AND applying Vulnerable).
 
 **Cross-Scaffold tension:** Diversity Protocol conflicts with Overclock License. Overclock wants expensive cards (few plays, high cost). Diversity wants many different cards (many plays, varied costs). You can't optimize for both.
 
@@ -1454,7 +1519,7 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 *"Never stop moving."*
 
 **Trigger:** Each time you Dash during an Active Window.
-**Effect:** Reduce Statement lane cooldown by 40ms per Dash (this window only). Resets at end of window.
+**Effect:** Reduce Statement lane cooldown by 60ms per Dash (this window only). Resets at end of window. Floor: 150ms.
 
 **What it does:** Every Dash makes your melee attacks faster for the rest of that window.
 
@@ -1463,11 +1528,10 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 | Dashes this window | Statement CD | Notes |
 |---|---|---|
 | 0 | 350ms (base) | Normal |
-| 1 | 310ms | Slightly faster |
-| 2 | 270ms | Meaningful speedup |
-| 3 | 230ms | Rapid melee |
-| 4 | 190ms | Very fast |
-| 5+ | 150ms (floor) | Melee machine gun |
+| 1 | 290ms | Noticeable |
+| 2 | 230ms | Meaningful speedup |
+| 3 | 170ms | Dramatic — rapid melee |
+| 4+ | 150ms (floor) | Melee machine gun |
 
 **Decks it rewards:**
 - Aggressive melee decks that Dash into combat (not away from it)
@@ -1546,7 +1610,7 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 - Precision / kiting builds (keeping enemies spread out at range)
 - Tag + Execute (focused on one enemy, doesn't care about grouping)
 
-**Numerical example:** Singularity groups 5 bugs. All attacks deal +30%. Detonate hits for 95 × 1.3 = **123 per bug**. That's 617 total damage in one play.
+**Numerical example:** Singularity groups 5 bugs. All attacks deal +30%. Detonate hits for 30 × 1.3 = **39 per bug**. That's 195 total damage in one play.
 
 **Cross-Scaffold tension:** Convergence Matrix + Diversity Protocol. Convergence rewards focused AoE builds (few card types, lots of grouping). Diversity rewards varied builds (many card types). You can run both, but it means spreading your deck thin.
 
@@ -1556,26 +1620,26 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 
 ### Scaffold 10: Entropy Engine
 
-*"One in three is free."*
+*"Every fourth one's on the house."*
 
-**Trigger:** Every 3rd card you play this arena deployment.
+**Trigger:** Every 4th card you play this arena deployment.
 **Effect:** That card costs 0 compute (both pools).
 
-**What it does:** Every third card is free. No conditions, no restrictions. Just a steady drip of savings.
+**What it does:** Every fourth card is free. No conditions, no restrictions. Just a steady drip of savings.
 
-**Numerical value:** If you play 30 cards in a deployment, 10 of them are free. At an average cost of ~20 compute, that's ~200 compute saved — roughly 1.5 Active Windows worth of compute.
+**Numerical value:** If you play 30 cards in a deployment, 7-8 of them are free. At an average cost of ~20 compute, that's ~150 compute saved — roughly 1.5 Active Windows worth of compute.
 
 **Decks it rewards:**
 - Every deck benefits equally — this is the most generic Scaffold
-- Particularly good for expensive card decks (Bolt 40 → free every 3rd play)
+- Particularly good for expensive card decks (Bolt 40 → free every 4th play)
 - Works well with Surge (Second Pass — cheaper cards mean more plays → more free plays)
 
 **Decks it doesn't particularly reward or punish:**
 - It's universally good, which is a design concern (see below)
 
-**Design concern — too generic?** Entropy Engine is the least "build-defining" Scaffold. It doesn't push you toward any specific deck composition. Every deck benefits equally. This makes it a safe pick but a boring one.
+**Design note — why every 4th instead of every 3rd:** At every 3rd card, Entropy Engine saved ~200 compute per deployment, which was deceptively strong — potentially outperforming conditional Scaffolds that require specific builds. Every 4th card saves ~150 compute, which is competitive with other Scaffolds but not dominant. The "training wheels" identity stays intact — always decent, never great, never requires build changes.
 
-**Mitigation:** Entropy Engine could be made more interesting by changing it to "every 3rd card of the SAME TYPE costs 0." This means running 3 Slashes in a row makes the 3rd free, but mixing Slash → Bolt → Slash doesn't. This rewards running duplicate cards (mono-type decks) and punishes variety (anti-synergy with Diversity Protocol). But this adds complexity. Recommendation: keep it simple (every 3rd card) and accept that it's the "beginner-friendly" Scaffold.
+**Design concern — too generic?** Entropy Engine is the least "build-defining" Scaffold. It doesn't push you toward any specific deck composition. Every deck benefits equally. This makes it a safe pick but a boring one. Experienced players should replace it with something build-specific.
 
 **From Slay the Spire:** This is the **Happy Flower / Incense Burner** pattern — a relic that triggers on a fixed cadence regardless of what you do. Simple, reliable, universally good.
 
@@ -1655,16 +1719,16 @@ This sounds low, but it's **free** — you don't spend compute or cards on it. I
 
 | # | Name | Trigger | Effect | Rewards |
 |---|---|---|---|---|
-| 1 | Cascade Protocol | Play 5+ cards in one window | Recycle first discarded Statement | Cheap spam decks |
-| 2 | Overclock License | Spend 40+ on one card | Next Function card costs 0 | Expensive ranged |
-| 3 | Diversity Protocol | Passive | +2 damage per unique card in discard (max +14) | Varied decks |
+| 1 | Cascade Protocol | Play 5+ cards in one window | Recycle first discarded Statement (free) | Cheap spam decks |
+| 2 | Overclock License | Function card costs 30+ compute | 33% chance to double-cast (offensive) or free-cast (utility) | Expensive ranged |
+| 3 | Diversity Protocol | Passive | +4% damage per unique card in discard (max +40%, 10 types) | Varied decks |
 | 4 | Conservation Protocol | End window with 50+ compute | Gain 12 Shield | Cheap/few-play decks |
 | 5 | Symbiosis Engine | Play both lanes in one window | Draw 1 bonus card | Balanced decks |
 | 6 | Decay Protocol | Passive | Debuffed enemies lose 2% HP/s | Debuff builds |
-| 7 | Momentum Core | Dash during window | −40ms melee CD per Dash | Aggressive melee |
+| 7 | Momentum Core | Dash during window | −60ms melee CD per Dash (floor 150ms) | Aggressive melee |
 | 8 | Berserker Protocol | Take Integrity damage | Next melee +50% (max ×2.0) | Masochist melee |
 | 9 | Convergence Matrix | 3+ enemies within 150px | +30% damage to grouped enemies | AoE/grouping |
-| 10 | Entropy Engine | Every 3rd card | That card costs 0 | Universal |
+| 10 | Entropy Engine | Every 4th card | That card costs 0 | Universal |
 | 11 | Precision Protocol | Function damage from 300+ px | +8% Function damage per stack (max +40%) | Ranged kiting |
 | 12 | Second Wind | Shield drops to 0 | Draw 2 cards (1 per queue) | Shield cycling |
 
@@ -1717,17 +1781,18 @@ Scaffolds that create deckbuilding tension when chosen together:
 
 **The Storm (Cascade + Symbiosis + Diversity):**
 - Run a varied, cheap deck with both melee and ranged cards
-- Cascade recycles melee cards when you play 5+
+- Cascade recycles a free melee card when you play 5+
 - Symbiosis draws bonus cards for using both lanes
-- Diversity boosts all damage for variety
-- Deck composition: 4+ different card types, all under 25 cost
+- Diversity boosts all damage +40% for 10+ unique card types
+- Deck composition: 10+ different card types, all under 25 cost
 
 **The Cannon (Overclock + Precision Protocol + Convergence):**
 - Run expensive ranged cards (Bolt, Detonate, Singularity)
-- Overclock makes follow-up Function free after big spend
+- Overclock gives 33% chance to double-cast on cards costing 30+
 - Precision Protocol stacks damage from range
 - Convergence boosts grouped enemies
-- Deck composition: Bolt-heavy, Singularity for grouping, Detonate for payoff
+- Detonate only efficient when Singularity groups 5+ enemies (30+ each)
+- Deck composition: Bolt-heavy, Singularity for grouping, Detonate as group payoff
 
 **The Blender (Momentum Core + Berserker + Second Wind):**
 - Run aggressive melee (Slash, Iterate, Backstab, Shatter)
@@ -1746,7 +1811,7 @@ Scaffolds that create deckbuilding tension when chosen together:
 **The Minimalist (Conservation + Overclock + Precision Protocol):**
 - Run a deck with 1-2 expensive ranged cards and nothing else
 - Play one Bolt per window, end with 50+ compute → Conservation Shield
-- Bolt triggers Overclock → next card free
+- Bolt (40 cost) has 33% chance to double-cast via Overclock
 - Precision Protocol stacks from ranged distance
 - Minimal plays, maximum efficiency per play
 
@@ -1780,9 +1845,9 @@ type ScaffoldTrigger =
   | { type: "every_nth_card"; n: number };
 
 type ScaffoldEffect =
-  | { type: "recycle_statement" }
-  | { type: "free_function" }
-  | { type: "damage_per_unique"; perUnique: number; maxBonus: number }
+  | { type: "recycle_statement_free" }
+  | { type: "double_cast_function"; costThreshold: number; chance: number }
+  | { type: "damage_percent_per_unique"; percentPerUnique: number; maxBonus: number }
   | { type: "gain_shield"; amount: number }
   | { type: "draw_card" }
   | { type: "percent_hp_damage_per_second"; percent: number }
@@ -1802,8 +1867,8 @@ type ScaffoldEffect =
 - **Precision stacks:** current stacks, with proximity-based reset check each frame
 - **Berserker stacks:** current stacks, consumed on next melee hit
 - **Entropy counter:** cards played this deployment modulo 3
-- **Overclock state:** whether next Function is free (boolean, consumed on next Function play)
-- **Cascade state:** whether 5-card threshold was reached this window (boolean), first discarded Statement card reference
+- **Overclock state:** per-Function-card roll at play time (if cost ≥ 30, roll 33% for double-cast or free-cast), no persistent state needed
+- **Cascade state:** whether 5-card threshold was reached this window (boolean), first discarded Statement card reference, flag marking it as free
 
 ### Shop integration
 
@@ -1817,4 +1882,4 @@ type ScaffoldEffect =
 1. **No Scaffold should be strictly better than not having it in some deck.** Every Scaffold should have deck compositions where it's actively bad.
 2. **Three Scaffolds should define a build.** After equipping 3, the player should have a clear sense of what their deck "wants to do."
 3. **Conflicting Scaffolds are allowed.** The player CAN run Cascade + Conservation, but it's on them to make it work.
-4. **Entropy Engine is the "training wheels" Scaffold.** It's always decent, never great. New players gravitate toward it. Experienced players replace it with something build-specific.
+4. **Entropy Engine is the "training wheels" Scaffold.** It's always decent, never great. Every 4th card free is meaningful but not dominant. New players gravitate toward it. Experienced players replace it with something build-specific.
