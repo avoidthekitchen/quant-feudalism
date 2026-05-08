@@ -3101,7 +3101,6 @@ export class ArenaScene extends Phaser.Scene {
         points.push({
           x: entry.snapshot.player.position.x,
           y: entry.snapshot.player.position.y,
-          timeMs: entry.timelineTimeMs,
         });
       }
     }
@@ -3109,7 +3108,6 @@ export class ArenaScene extends Phaser.Scene {
     points.push({
       x: this.player.x,
       y: this.player.y,
-      timeMs: this.timelineTimeMs,
     });
 
     return points;

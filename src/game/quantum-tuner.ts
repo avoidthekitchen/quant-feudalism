@@ -7,7 +7,6 @@ export const QUANTUM_TUNER_SNAPSHOT_INTERVAL_MS = 100;
 export interface TrailPoint {
   x: number;
   y: number;
-  timeMs: number;
 }
 
 export type SnapshotVector = {
