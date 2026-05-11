@@ -215,9 +215,13 @@ function drawPlayerSheetFrame(
     rect(ctx, cx - side * (52 + frame * 12), y + 146, 36, 6, "rgba(255, 255, 255, 0.28)");
   }
 
-  strokePixelLine(ctx, cx + hoodLean + aimSide * 24, torsoY + 10, cx + hoodLean + aimSide * 62, y + 44, "#070b10", 10);
-  strokePixelLine(ctx, cx + hoodLean + aimSide * 28, torsoY + 14, cx + hoodLean + aimSide * 66, y + 48, "#c9fff0", 4);
-  rect(ctx, cx + hoodLean + aimSide * 48, y + 40, 10, 30, "#05070b");
+  const drawBackSword = () => {
+    strokePixelLine(ctx, cx + hoodLean + aimSide * 24, torsoY + 10, cx + hoodLean + aimSide * 62, y + 44, "#070b10", 10);
+    strokePixelLine(ctx, cx + hoodLean + aimSide * 28, torsoY + 14, cx + hoodLean + aimSide * 66, y + 48, "#c9fff0", 4);
+    rect(ctx, cx + hoodLean + aimSide * 48, y + 40, 10, 30, "#05070b");
+  };
+
+  if (!back) drawBackSword();
 
   rect(ctx, cx - 26 + legA, y + 142 + bob, 18, 42, "#090f17");
   rect(ctx, cx - 20 + legA, y + 150 + bob, 10, 24, "#1e2d38");
@@ -320,6 +324,8 @@ function drawPlayerSheetFrame(
     rect(ctx, cx - 36 + hoodLean, headY + 2, 72, 18, "#05080d");
     rect(ctx, cx - 24 + lean, torsoY + 20, 48, 36, "#111a25");
   }
+
+  if (back) drawBackSword();
 
   if (direction.includes("s")) {
     rect(ctx, cx - 14 + lean, torsoY + 12, 28, 40, "#0e1721");
@@ -723,6 +729,13 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.fillStyle(0xffcf66, 0.05);
   graphics.fillCircle(96, 152, 64);
   graphics.generateTexture("qf-haze", 256, 256);
+
+  graphics.clear();
+  graphics.fillStyle(0xffffff, 0.92);
+  graphics.fillCircle(5, 5, 4);
+  graphics.fillStyle(0x60ffd3, 0.48);
+  graphics.fillCircle(5, 5, 5);
+  graphics.generateTexture("qf-spark", 10, 10);
 
   graphics.destroy();
 }

@@ -38,6 +38,11 @@ import {
   type ComputeCycleState,
 } from "../compute-cycle";
 import { ArenaDiagnostics, type SubsystemLabel } from "../diagnostics";
+import {
+  calculateBugFlockVelocity,
+  DEFAULT_BUG_FLOCK_CONFIG,
+  type BugFlockAgent,
+} from "../bug-movement";
 import { createEnemySpawnPlan, type EnemyType } from "../enemies";
 import { getAttackCardDefinition } from "../card-catalog";
 import {
@@ -202,6 +207,11 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly droneLungeDuration = 0.18;
   private static readonly droneLungeCooldown = 1.35;
   private static readonly droneLungeSpeed = 470;
+  private static readonly bugFlockConfig = {
+    ...DEFAULT_BUG_FLOCK_CONFIG,
+    closeSpeed: ArenaScene.droneCloseSpeed * ArenaScene.combatSpeedMultiplier,
+    chaseSpeed: ArenaScene.droneChaseSpeed * ArenaScene.combatSpeedMultiplier,
+  };
   private static readonly hopperPreferredMinRange = 250;
   private static readonly hopperPreferredMaxRange = 350;
   private static readonly hopperApproachRange = 400;
@@ -215,6 +225,14 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly hopperShotWindupDuration = 0.55;
   private static readonly hopperShotCooldown = 2.2;
   private static readonly hopperTouchCooldown = 0.9;
+
+  private static readonly hitstopMeleeMs = 90;
+  private static readonly hitstopRangedDirectMs = 120;
+  private static readonly hitstopRangedSplashMs = 60;
+  private static readonly hitstopPlayerDamageMs = 130;
+  private static readonly impactSparkCount = 8;
+  private static readonly killBurstRingCount = 3;
+
   private static readonly enemySpawnPositions = [
     [540, 240],
     [710, 280],
@@ -291,6 +309,9 @@ export class ArenaScene extends Phaser.Scene {
   private snapshotHistory: TimedArenaSnapshot[] = [];
   private collapsePlayback?: CollapsePlayback;
   private deathSequenceActive = false;
+  private damageTintTimer?: Phaser.Time.TimerEvent;
+  private hitstopRemainingMs = 0;
+  private hitstopPhysicsPaused = false;
   private ghostReplay?: GhostReplay;
   private quantumTrailGraphics?: Phaser.GameObjects.Graphics;
   private quantumTargetMarker?: Phaser.GameObjects.Arc;
@@ -318,6 +339,8 @@ export class ArenaScene extends Phaser.Scene {
     this.dashInvulnerabilityTimer = 0;
     this.rangedMovementPauseTimer = 0;
     this.playerAttackTimer = 0;
+    this.hitstopRemainingMs = 0;
+    this.hitstopPhysicsPaused = false;
     this.playerFacing = "s";
     this.currentPlayerAnim = "";
     this.cooldownRemainingMs = {
@@ -344,6 +367,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     gameState.computeCurrent = Math.min(gameState.computeMax, Math.max(0, gameState.allotmentCurrent));
     gameState.emitChange();
+    this.deathSequenceActive = false;
     this.transientVisuals.clear();
     this.timelineTimeMs = 0;
     this.arenaElapsedTimeMs = 0;
@@ -470,6 +494,7 @@ export class ArenaScene extends Phaser.Scene {
     gameState.setExtractionReady(this.arenaCleared);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.resumeHitstopPhysics();
       this.input.off("pointerdown", this.handlePointerDown, this);
       this.clearTransientVisuals();
       this.destroyRefundAura();
@@ -491,6 +516,16 @@ export class ArenaScene extends Phaser.Scene {
     if (this.collapsePlayback) {
       this.timeSubsystem("collapsePlayback", () => this.updateCollapsePlayback(delta));
       this.timeSubsystem("quantumTrail", () => this.updateQuantumTrail());
+      this.diagnostics.endFrame(delta, this.diagnosticsContext());
+      return;
+    }
+
+    if (this.hitstopRemainingMs > 0) {
+      this.hitstopRemainingMs = Math.max(0, this.hitstopRemainingMs - delta);
+      if (this.hitstopRemainingMs === 0) {
+        this.resumeHitstopPhysics();
+      }
+      this.updateVisuals();
       this.diagnostics.endFrame(delta, this.diagnosticsContext());
       return;
     }
@@ -1634,7 +1669,7 @@ export class ArenaScene extends Phaser.Scene {
       const forwardReach = offset.dot(new Phaser.Math.Vector2(Math.cos(swingAngle), Math.sin(swingAngle)));
 
       if (distance <= ArenaScene.meleeRange && forwardReach > -18 && delta <= 1.08) {
-        this.hitDrone(drone, cardDefinition?.damage ?? MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration);
+        this.hitDrone(drone, cardDefinition?.damage ?? MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration, ArenaScene.hitstopMeleeMs);
       }
     });
 
@@ -1801,6 +1836,7 @@ export class ArenaScene extends Phaser.Scene {
     angle: number,
     force: number,
     stunDuration = 0,
+    hitstopMs = 0,
   ): void {
     drone.hp -= damage;
     drone.sprite.setVelocity(
@@ -1823,6 +1859,12 @@ export class ArenaScene extends Phaser.Scene {
       this.clearHopperShotTelegraph(drone);
     }
 
+    if (hitstopMs > 0) {
+      this.applyHitstop(hitstopMs);
+      this.cameras.main.shake(60, 0.0015);
+    }
+    this.createImpactBurst(drone.sprite.x, drone.sprite.y, angle, 0x60ffd3);
+
     this.tweens.add({
       targets: drone.sprite,
       alpha: { from: 0.62, to: 1 },
@@ -1831,6 +1873,7 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     if (drone.hp <= 0) {
+      this.createKillBurst(drone.sprite.x, drone.sprite.y);
       this.destroyDroneRuntime(drone);
       this.drones = this.drones.filter((candidate) => candidate !== drone);
       gameState.registerKill();
@@ -1847,7 +1890,7 @@ export class ArenaScene extends Phaser.Scene {
       if (drone !== impacted) {
         const splashAngle = Phaser.Math.Angle.Between(impactX, impactY, drone.sprite.x, drone.sprite.y);
         this.pullDroneTowardPoint(drone, impactX, impactY, RANGED_PULL_FORCE);
-        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0);
+        this.hitDrone(drone, RANGED_SPLASH_DAMAGE, splashAngle, 0, 0, ArenaScene.hitstopRangedSplashMs);
       }
     });
 
@@ -2007,9 +2050,6 @@ export class ArenaScene extends Phaser.Scene {
       const direction = distance > 0.001
         ? toPlayer.clone().scale(1 / distance)
         : drone.lungeDirection.clone();
-      const orbit = new Phaser.Math.Vector2(-direction.y, direction.x).scale(
-        Math.sin(this.timelineTimeMs * 0.0018 + drone.orbitSeed) * 46,
-      );
       const body = drone.sprite.body as Phaser.Physics.Arcade.Body;
 
       if (drone.stunTimer > 0) {
@@ -2055,13 +2095,12 @@ export class ArenaScene extends Phaser.Scene {
           body.velocity.x = Phaser.Math.Linear(body.velocity.x, 0, 0.18);
           body.velocity.y = Phaser.Math.Linear(body.velocity.y, 0, 0.18);
         } else {
-          const desired = direction
-            .clone()
-            .scale(
-              (distance > 58 ? ArenaScene.droneChaseSpeed : ArenaScene.droneCloseSpeed) *
-                ArenaScene.combatSpeedMultiplier,
-            )
-            .add(orbit);
+          const desired = calculateBugFlockVelocity(
+            this.toBugFlockAgent(drone),
+            this.drones.map((neighbor) => this.toBugFlockAgent(neighbor)),
+            { x: this.player.x, y: this.player.y },
+            ArenaScene.bugFlockConfig,
+          );
 
           body.velocity.x = Phaser.Math.Linear(
             body.velocity.x,
@@ -2091,7 +2130,7 @@ export class ArenaScene extends Phaser.Scene {
         drone.touchCooldown = 0.9;
         drone.attackTimer = 0.26;
         const died = gameState.applyDamage(drone.lungeTimer > 0 ? 18 : 14);
-        this.cameras.main.shake(130, 0.0035);
+        this.applyPlayerDamageFeedback(drone.sprite.x, drone.sprite.y, 130, 0.0035);
 
         if (died) {
           if (this.tryCollapse()) {
@@ -2116,6 +2155,21 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     return false;
+  }
+
+  private toBugFlockAgent(drone: EnemyUnit): BugFlockAgent {
+    const body = drone.sprite.body as Phaser.Physics.Arcade.Body;
+    return {
+      id: drone.id,
+      type: drone.type,
+      x: drone.sprite.x,
+      y: drone.sprite.y,
+      velocity: {
+        x: body.velocity.x,
+        y: body.velocity.y,
+      },
+      orbitSeed: drone.orbitSeed,
+    };
   }
 
   private updateHopper(hopper: EnemyUnit, dt: number): boolean {
@@ -2224,7 +2278,7 @@ export class ArenaScene extends Phaser.Scene {
       hopper.touchCooldown = ArenaScene.hopperTouchCooldown;
       hopper.attackTimer = 0.2;
       const died = gameState.applyDamage(HOPPER_TOUCH_DAMAGE);
-      this.cameras.main.shake(110, 0.0028);
+      this.applyPlayerDamageFeedback(hopper.sprite.x, hopper.sprite.y, 110, 0.0028);
 
       if (died) {
         if (this.tryCollapse()) {
@@ -2462,7 +2516,7 @@ export class ArenaScene extends Phaser.Scene {
           }
 
           const died = gameState.applyDamage(projectile.damage);
-          this.cameras.main.shake(130, 0.0032);
+          this.applyPlayerDamageFeedback(impactX, impactY, 130, 0.0032);
           if (died) {
             this.projectiles = [
               ...survivors,
@@ -2500,7 +2554,7 @@ export class ArenaScene extends Phaser.Scene {
         const impactX = projectile.sprite.x;
         const impactY = projectile.sprite.y;
         this.applyRangedSiphonImpact(impactX, impactY, impacted);
-        this.hitDrone(impacted, projectile.damage, angle, 180);
+        this.hitDrone(impacted, projectile.damage, angle, 180, 0, ArenaScene.hitstopRangedDirectMs);
         projectile.sprite.destroy();
         continue;
       }
@@ -2776,6 +2830,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.deathSequenceActive = true;
+    this.damageTintTimer?.remove();
     gameState.finishArena(status, note, this.arenaElapsedTimeMs);
     this.clearTransientVisuals();
     this.destroyCooldownIndicators();
@@ -3467,6 +3522,96 @@ export class ArenaScene extends Phaser.Scene {
   private destroyAllDrones(): void {
     this.drones.forEach((drone) => this.destroyDroneRuntime(drone));
     this.drones = [];
+  }
+
+  private applyPlayerDamageFeedback(
+    attackerX: number,
+    attackerY: number,
+    shakeDuration: number,
+    shakeIntensity: number,
+  ): void {
+    this.applyHitstop(ArenaScene.hitstopPlayerDamageMs);
+    this.player.setTint(0xff4fa4);
+    this.damageTintTimer?.remove();
+    this.damageTintTimer = this.time.delayedCall(140, () => {
+      this.player.clearTint();
+      this.damageTintTimer = undefined;
+    });
+    this.createImpactBurst(
+      this.player.x,
+      this.player.y,
+      Math.atan2(this.player.y - attackerY, this.player.x - attackerX),
+      0xff4fa4,
+    );
+    this.cameras.main.shake(shakeDuration, shakeIntensity);
+  }
+
+  private applyHitstop(durationMs: number): void {
+    this.hitstopRemainingMs = Math.max(this.hitstopRemainingMs, durationMs);
+    if (!this.hitstopPhysicsPaused) {
+      this.physics.world.pause();
+      this.hitstopPhysicsPaused = true;
+    }
+  }
+
+  private resumeHitstopPhysics(): void {
+    if (!this.hitstopPhysicsPaused) {
+      return;
+    }
+    this.physics.world.resume();
+    this.hitstopPhysicsPaused = false;
+  }
+
+  private createImpactBurst(
+    x: number,
+    y: number,
+    angle: number,
+    color: number,
+  ): void {
+    for (let i = 0; i < ArenaScene.impactSparkCount; i++) {
+      const spread = (Math.random() - 0.5) * 2.8;
+      const outAngle = angle + spread;
+      const speed = 60 + Math.random() * 120;
+      const spark = this.trackTransientVisual(
+        this.add.image(x, y, "qf-spark"),
+      );
+      spark.setTint(color);
+      spark.setScale(0.7 + Math.random() * 0.8);
+      spark.setAlpha(0.92);
+      spark.setDepth(y + 24);
+      spark.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(outAngle) * speed,
+        y: y + Math.sin(outAngle) * speed,
+        alpha: 0,
+        scale: 0.15,
+        duration: 160 + Math.random() * 120,
+        ease: "Sine.easeOut",
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
+  private createKillBurst(x: number, y: number): void {
+    for (let i = 0; i < ArenaScene.killBurstRingCount; i++) {
+      const delay = i * 30;
+      const ring = this.trackTransientVisual(
+        this.add.circle(x, y, 6, 0xffcf66, 0),
+      );
+      ring.setStrokeStyle(2, 0xffcf66, 0.9 - i * 0.15);
+      ring.setBlendMode(Phaser.BlendModes.ADD);
+      ring.setDepth(y + 26);
+      this.tweens.add({
+        targets: ring,
+        alpha: { from: 0.6, to: 0 },
+        scale: { from: 0.8, to: 1.8 + i * 0.4 },
+        duration: 200 + i * 40,
+        delay,
+        ease: "Sine.easeOut",
+        onComplete: () => ring.destroy(),
+      });
+    }
   }
 
   private destroyDroneRuntime(drone: EnemyUnit): void {
