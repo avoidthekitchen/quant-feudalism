@@ -350,6 +350,7 @@ test("cycle end discards queued cards and preparing completion draws back to the
 
   const preparing = endActiveWindow(played);
 
+  assert.equal(PREPARING_WINDOW_MS, 700);
   assert.equal(preparing.phase, "preparing");
   assert.equal(preparing.preparingRemainingMs, PREPARING_WINDOW_MS);
   assert.equal(preparing.queues.melee.length + preparing.queues.ranged.length, 0);

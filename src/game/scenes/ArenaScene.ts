@@ -18,6 +18,12 @@ import {
   type CombatAbilityAction,
 } from "../combat";
 import {
+  advanceStatementChain,
+  INPUT_BUFFER_MS,
+  statementChainDamage,
+  type StatementChainIndex,
+} from "../combat-feel";
+import {
   activateRefundDiscount,
   advanceComputeCycle,
   createArenaComputeCycle,
@@ -79,6 +85,15 @@ type AbilityAction = CombatAbilityAction;
 type AbilityAttempt = {
   allowed: boolean;
   cost: number;
+};
+
+type BufferedInputAction = "dash" | "melee" | "ranged" | "cycle-end";
+
+type BufferedInput = {
+  action: BufferedInputAction;
+  ageMs: number;
+  targetX?: number;
+  targetY?: number;
 };
 
 type CooldownIndicator = {
@@ -188,13 +203,13 @@ export class ArenaScene extends Phaser.Scene {
   private static readonly deathVisualDurationMs = 1_350;
   private static readonly combatSpeedMultiplier = 1.5;
   private static readonly playerBaseSpeed = 150;
-  private static readonly playerBaseAcceleration = 760;
+  private static readonly playerBaseAcceleration = 2000;
   private static readonly playerBaseDeceleration = 980;
-  private static readonly playerBaseDashSpeed = 520;
+  private static readonly playerBaseDashSpeed = 580;
   private static readonly meleeRange = 166;
   private static readonly meleeStunDuration = 0.28;
   private static readonly playerDashDuration = 0.145;
-  private static readonly playerDashInvulnerabilityDuration = 0.24;
+  private static readonly playerDashInvulnerabilityDuration = 0.16;
   private static readonly meleeAttackLockDuration = 0.13;
   private static readonly rangedMovementPauseDuration = 0.32;
   private static readonly rangedAttackAnimationDuration = 0.28;
@@ -289,6 +304,9 @@ export class ArenaScene extends Phaser.Scene {
   private playerFacing: SpriteDirection = "s";
   private currentPlayerAnim = "";
   private velocity = new Phaser.Math.Vector2();
+  private bufferedInputs: BufferedInput[] = [];
+  private statementChainIndex: StatementChainIndex = 0;
+  private statementChainTimerMs = Number.POSITIVE_INFINITY;
   private cooldownRemainingMs: Record<AbilityAction, number> = {
     dash: 0,
     melee: 0,
@@ -339,6 +357,9 @@ export class ArenaScene extends Phaser.Scene {
     this.dashInvulnerabilityTimer = 0;
     this.rangedMovementPauseTimer = 0;
     this.playerAttackTimer = 0;
+    this.bufferedInputs = [];
+    this.statementChainIndex = 0;
+    this.statementChainTimerMs = Number.POSITIVE_INFINITY;
     this.hitstopRemainingMs = 0;
     this.hitstopPhysicsPaused = false;
     this.playerFacing = "s";
@@ -535,6 +556,8 @@ export class ArenaScene extends Phaser.Scene {
     this.arenaElapsedTimeMs += delta;
     this.snapshotAccumulatorMs += delta;
     this.advanceAbilityCooldowns(delta);
+    this.advanceBufferedInputs(delta);
+    this.statementChainTimerMs += delta;
     this.playerAttackTimer = Math.max(0, this.playerAttackTimer - dt);
     this.dashInvulnerabilityTimer = Math.max(0, this.dashInvulnerabilityTimer - dt);
     this.timeSubsystem("computeCycle", () => this.advanceComputeCycleState(delta));
@@ -547,12 +570,11 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.E)) {
-      this.tryRequestCycleEnd();
-    }
-
+    this.bufferKeyboardInputs();
+    this.processBufferedInputs(pointer);
     this.updatePlayerMovement(dt, pointer);
     this.updatePlayerOrientation(pointer);
+    this.updateCameraLookAhead(pointer);
 
     if (this.timeSubsystem("updateDrones", () => this.updateDrones(dt))) {
       this.diagnostics.endFrame(delta, this.diagnosticsContext());
@@ -616,7 +638,18 @@ export class ArenaScene extends Phaser.Scene {
       for (let col = 0; col < 17; col += 1) {
         const x = startX + col * 96 + (row % 2) * 48;
         const y = startY + row * 46;
-        const tile = this.add.image(x, y, "qf-floor");
+        const variantRoll = (row * 17 + col * 29) % 100;
+        const tileKey =
+          variantRoll < 70
+            ? "qf-floor"
+            : variantRoll < 78
+              ? "qf-floor-cracked"
+              : variantRoll < 86
+                ? "qf-floor-circuit"
+                : variantRoll < 94
+                  ? "qf-floor-pool"
+                  : "qf-floor-grate";
+        const tile = this.add.image(x, y, tileKey);
         tile.setAlpha((row + col) % 5 === 0 ? 0.9 : 0.68);
         tile.setDepth(-260 + row);
       }
@@ -642,6 +675,20 @@ export class ArenaScene extends Phaser.Scene {
       crack.lineBetween(x2, y2, x3, y3);
       crack.setDepth(y3 - 12);
     });
+
+    for (let i = 0; i < 12; i += 1) {
+      const cable = this.add.rectangle(130 + i * 126, 78 + (i % 3) * 18, 96, 3, i % 2 === 0 ? 0x60ffd3 : 0xff4fa4, 0.22);
+      cable.setAngle(i % 2 === 0 ? -10 : 12);
+      cable.setDepth(-18);
+    }
+
+    for (let i = 0; i < 10; i += 1) {
+      const scorch = this.add.image(220 + ((i * 181) % 1240), 220 + ((i * 109) % 760), "qf-scorch");
+      scorch.setAlpha(0.35);
+      scorch.setScale(0.7 + (i % 4) * 0.16);
+      scorch.setAngle((i * 31) % 180);
+      scorch.setDepth(scorch.y - 20);
+    }
   }
 
   private createAtmosphere(): void {
@@ -659,15 +706,17 @@ export class ArenaScene extends Phaser.Scene {
       haze.setDepth(y - 180);
     });
 
-    for (let i = 0; i < 18; i += 1) {
+    for (let i = 0; i < 34; i += 1) {
       const x = 120 + ((i * 197) % 1420);
       const y = 100 + ((i * 113) % 940);
-      const ember = this.add.rectangle(x, y, 3 + (i % 3), 10 + (i % 5), 0xffcf66, 0.2);
+      const ember = this.add.rectangle(x, y, 2 + (i % 4), 6 + (i % 7), i % 3 === 0 ? 0x60ffd3 : i % 3 === 1 ? 0xffcf66 : 0xff4fa4, 0.18);
+      ember.setBlendMode(Phaser.BlendModes.ADD);
       ember.setDepth(y + 70);
       this.tweens.add({
         targets: ember,
-        alpha: { from: 0.05, to: 0.38 },
-        y: y - 18,
+        alpha: { from: 0.04, to: 0.34 },
+        y: y - 18 - (i % 5) * 3,
+        x: x + ((i % 2 === 0 ? 1 : -1) * (8 + (i % 4) * 3)),
         duration: 1500 + i * 90,
         yoyo: true,
         repeat: -1,
@@ -777,7 +826,7 @@ export class ArenaScene extends Phaser.Scene {
             key: sheetKey,
             frame: spriteFrameName(action, direction, frame),
           })),
-          frameRate: action === "idle" ? 3 : action === "run" ? 11 : 15,
+          frameRate: action === "idle" ? 4 : action === "run" ? 14 : action === "attack" ? 18 : 20,
           repeat: action === "attack" || action === "dash" ? 0 : -1,
         });
       });
@@ -789,10 +838,6 @@ export class ArenaScene extends Phaser.Scene {
       (this.cursors.D.isDown ? 1 : 0) - (this.cursors.A.isDown ? 1 : 0),
       (this.cursors.S.isDown ? 1 : 0) - (this.cursors.W.isDown ? 1 : 0),
     );
-
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.SPACE)) {
-      this.tryDash(input, pointer);
-    }
 
     if (this.dashTimer > 0) {
       this.dashTimer = Math.max(0, this.dashTimer - dt);
@@ -807,7 +852,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0) {
+    if (this.rangedMovementPauseTimer > 0) {
       this.rangedMovementPauseTimer = Math.max(0, this.rangedMovementPauseTimer - dt);
       const brake =
         ArenaScene.playerBaseDeceleration *
@@ -822,7 +867,11 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    const preparingMultiplier = this.computeCycle.phase === "preparing" ? 0.6 : 1;
+    if (this.playerAttackTimer > 0) {
+      this.rangedMovementPauseTimer = Math.max(0, this.rangedMovementPauseTimer - dt);
+    }
+
+    const preparingMultiplier = 1;
     const movementMultiplier = gameState.getMovementMultiplier() * preparingMultiplier;
     const maxSpeed =
       ArenaScene.playerBaseSpeed *
@@ -902,6 +951,15 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
+  private updateCameraLookAhead(pointer: Phaser.Input.Pointer): void {
+    const lookAhead = new Phaser.Math.Vector2(pointer.worldX - this.player.x, pointer.worldY - this.player.y);
+    if (lookAhead.lengthSq() > 0.001) {
+      lookAhead.normalize().scale(32);
+    }
+
+    this.cameras.main.setFollowOffset(-lookAhead.x, -lookAhead.y);
+  }
+
   private playPlayerAnimation(action: SpriteAction, direction: SpriteDirection): void {
     const animationDirection = this.animationDirectionForFacing(direction);
     this.player.setFlipX(this.shouldMirrorFacing(direction));
@@ -941,14 +999,14 @@ export class ArenaScene extends Phaser.Scene {
     return "ne";
   }
 
-  private tryDash(input: Phaser.Math.Vector2, pointer: Phaser.Input.Pointer): void {
-    if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
-      return;
+  private tryDash(input: Phaser.Math.Vector2, pointer: Phaser.Input.Pointer): boolean {
+    if (this.dashTimer > 0) {
+      return false;
     }
 
     const attempt = this.resolveAbilityAttempt("dash", 0);
     if (!attempt.allowed) {
-      return;
+      return false;
     }
 
     const direction = input.lengthSq() > 0
@@ -964,34 +1022,44 @@ export class ArenaScene extends Phaser.Scene {
     this.completeAbilityAttempt("dash", attempt);
     this.dashTimer = ArenaScene.playerDashDuration;
     this.dashInvulnerabilityTimer = ArenaScene.playerDashInvulnerabilityDuration;
+    this.playerAttackTimer = 0;
+    this.rangedMovementPauseTimer = 0;
     this.dashDirection.copy(direction);
     this.playerFacing = this.directionFromVector(direction, this.playerFacing);
     this.cameras.main.shake(90, 0.0022);
     this.createDashAfterimage();
+    return true;
   }
 
   private createDashAfterimage(): void {
-    const afterimage = this.trackTransientVisual(this.add.image(
-      this.player.x,
-      this.player.y,
-      PLAYER_SHEET_KEY,
-      spriteFrameName("dash", this.animationDirectionForFacing(this.playerFacing), 1),
-    ));
-    afterimage.setScale(ACTOR_DISPLAY_SCALE);
-    afterimage.setFlipX(this.shouldMirrorFacing(this.playerFacing));
-    afterimage.setAngle(this.player.angle);
-    afterimage.setAlpha(0.52);
-    afterimage.setTint(0x60ffd3);
-    afterimage.setDepth(this.player.depth - 1);
+    const frame = spriteFrameName("dash", this.animationDirectionForFacing(this.playerFacing), 1);
 
-    this.tweens.add({
-      targets: afterimage,
-      alpha: 0,
-      x: afterimage.x - this.dashDirection.x * 42,
-      y: afterimage.y - this.dashDirection.y * 22,
-      duration: 180,
-      onComplete: () => afterimage.destroy(),
-    });
+    for (let i = 0; i < 5; i += 1) {
+      const afterimage = this.trackTransientVisual(this.add.image(
+        this.player.x - this.dashDirection.x * i * 12,
+        this.player.y - this.dashDirection.y * i * 7,
+        PLAYER_SHEET_KEY,
+        frame,
+      ));
+      afterimage.setScale(ACTOR_DISPLAY_SCALE * (1 + i * 0.02));
+      afterimage.setFlipX(this.shouldMirrorFacing(this.playerFacing));
+      afterimage.setAngle(this.player.angle);
+      afterimage.setAlpha(0.42 - i * 0.055);
+      afterimage.setTint(i % 2 === 0 ? 0x60ffd3 : 0xff4fa4);
+      afterimage.setBlendMode(Phaser.BlendModes.ADD);
+      afterimage.setDepth(this.player.depth - 1 - i);
+
+      this.tweens.add({
+        targets: afterimage,
+        alpha: 0,
+        x: afterimage.x - this.dashDirection.x * (36 + i * 10),
+        y: afterimage.y - this.dashDirection.y * (18 + i * 5),
+        duration: 150 + i * 30,
+        delay: i * 18,
+        ease: "Sine.easeOut",
+        onComplete: () => afterimage.destroy(),
+      });
+    }
   }
 
   private resolveAbilityAttempt(action: AbilityAction, baseCost: number): AbilityAttempt {
@@ -1578,31 +1646,36 @@ export class ArenaScene extends Phaser.Scene {
     pointer.updateWorldPoint(this.cameras.main);
 
     if (pointer.rightButtonDown()) {
-      this.tryRanged(pointer.worldX, pointer.worldY);
+      this.bufferInput({ action: "ranged", targetX: pointer.worldX, targetY: pointer.worldY });
       return;
     }
 
-    this.tryMelee(pointer.worldX, pointer.worldY);
+    this.bufferInput({ action: "melee", targetX: pointer.worldX, targetY: pointer.worldY });
   }
 
-  private tryMelee(targetX: number, targetY: number): void {
+  private tryMelee(targetX: number, targetY: number, silent = false): boolean {
     if (this.playerAttackTimer > 0 || this.rangedMovementPauseTimer > 0 || this.dashTimer > 0) {
-      return;
+      return false;
     }
 
     if (this.computeCycle.phase !== "active") {
-      gameState.setNotice("Statement unavailable. Cycle is preparing.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Statement unavailable. Cycle is preparing.");
+      }
+      return false;
     }
 
     if (this.computeCycle.queues.melee.length <= 0) {
-      gameState.setNotice("Statement queue empty. End the Cycle or wait for the next draw.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Statement queue empty. End the Cycle or wait for the next draw.");
+      }
+      this.resetStatementChain();
+      return false;
     }
 
     const attempt = this.resolveAbilityAttempt("melee", gameState.meleeCost);
     if (!attempt.allowed) {
-      return;
+      return false;
     }
 
     const played = playAttackCard(this.computeCycle, "melee", {
@@ -1611,22 +1684,31 @@ export class ArenaScene extends Phaser.Scene {
       refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
     });
     if (!played.played || !played.card) {
-      this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
-      return;
+      if (!silent) {
+        this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
+      }
+      return false;
     }
 
     const cardDefinition = getAttackCardDefinition(played.card.id);
     const cardCost = getDiscountedAttackCost(played.card, this.computeCycle.refundDiscountAttacksRemaining);
     if (!gameState.canUseAbility(cardCost)) {
-      this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
-      return;
+      if (!silent) {
+        this.setAttackCardRejectionNotice("Statement", played.rejectionReason);
+      }
+      return false;
     }
 
     if (!gameState.spend(cardCost)) {
-      gameState.setNotice("Statement impulse denied. Not enough Compute remains.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Statement impulse denied. Not enough Compute remains.");
+      }
+      return false;
     }
 
+    const chainIndex = advanceStatementChain(this.statementChainIndex, this.statementChainTimerMs);
+    this.statementChainIndex = chainIndex;
+    this.statementChainTimerMs = 0;
     this.animatePlayedCard("melee");
     this.computeCycle = played.state;
     this.completeAbilityAttempt("melee", attempt, cardDefinition?.cooldownMs);
@@ -1646,12 +1728,14 @@ export class ArenaScene extends Phaser.Scene {
     slash.setRotation(swingAngle);
     slash.setDepth(this.player.y + 30);
     slash.setAlpha(0.72);
-    slash.setScale(1.32);
+    slash.setScale(1.22 + chainIndex * 0.18);
+    slash.setTint(chainIndex === 2 ? 0xffcf66 : chainIndex === 1 ? 0xff4fa4 : 0x60ffd3);
+    slash.setBlendMode(Phaser.BlendModes.ADD);
 
     this.tweens.add({
       targets: slash,
       alpha: 0,
-      scale: { from: 1.32, to: 1.58 },
+      scale: { from: 1.22 + chainIndex * 0.18, to: 1.5 + chainIndex * 0.24 },
       duration: 110,
       onComplete: () => slash.destroy(),
     });
@@ -1669,7 +1753,14 @@ export class ArenaScene extends Phaser.Scene {
       const forwardReach = offset.dot(new Phaser.Math.Vector2(Math.cos(swingAngle), Math.sin(swingAngle)));
 
       if (distance <= ArenaScene.meleeRange && forwardReach > -18 && delta <= 1.08) {
-        this.hitDrone(drone, cardDefinition?.damage ?? MELEE_DAMAGE, swingAngle, 250, ArenaScene.meleeStunDuration, ArenaScene.hitstopMeleeMs);
+        this.hitDrone(
+          drone,
+          statementChainDamage(cardDefinition?.damage ?? MELEE_DAMAGE, chainIndex),
+          swingAngle,
+          250 + chainIndex * 35,
+          ArenaScene.meleeStunDuration,
+          ArenaScene.hitstopMeleeMs,
+        );
       }
     });
 
@@ -1687,6 +1778,8 @@ export class ArenaScene extends Phaser.Scene {
         this.animateDealtAttackCard(drawn.card.type, drawnQueueIndex);
       }
     }
+
+    return true;
   }
 
   private angleForDirection(direction: SpriteDirection): number {
@@ -1704,24 +1797,28 @@ export class ArenaScene extends Phaser.Scene {
     return angles[direction];
   }
 
-  private tryRanged(targetX: number, targetY: number): void {
+  private tryRanged(targetX: number, targetY: number, silent = false): boolean {
     if (this.playerAttackTimer > 0 || this.dashTimer > 0 || this.rangedMovementPauseTimer > 0) {
-      return;
+      return false;
     }
 
     if (this.computeCycle.phase !== "active") {
-      gameState.setNotice("Function unavailable. Cycle is preparing.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Function unavailable. Cycle is preparing.");
+      }
+      return false;
     }
 
     if (this.computeCycle.queues.ranged.length <= 0) {
-      gameState.setNotice("Function queue empty. End the Cycle or wait for the next draw.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Function queue empty. End the Cycle or wait for the next draw.");
+      }
+      return false;
     }
 
     const attempt = this.resolveAbilityAttempt("ranged", gameState.rangedCost);
     if (!attempt.allowed) {
-      return;
+      return false;
     }
 
     const played = playAttackCard(this.computeCycle, "ranged", {
@@ -1730,22 +1827,29 @@ export class ArenaScene extends Phaser.Scene {
       refundDiscountAttacksRemaining: this.computeCycle.refundDiscountAttacksRemaining,
     });
     if (!played.played || !played.card) {
-      this.setAttackCardRejectionNotice("Function", played.rejectionReason);
-      return;
+      if (!silent) {
+        this.setAttackCardRejectionNotice("Function", played.rejectionReason);
+      }
+      return false;
     }
 
     const cardDefinition = getAttackCardDefinition(played.card.id);
     const cardCost = getDiscountedAttackCost(played.card, this.computeCycle.refundDiscountAttacksRemaining);
     if (!gameState.canUseAbility(cardCost)) {
-      this.setAttackCardRejectionNotice("Function", played.rejectionReason);
-      return;
+      if (!silent) {
+        this.setAttackCardRejectionNotice("Function", played.rejectionReason);
+      }
+      return false;
     }
 
     if (!gameState.spend(cardCost)) {
-      gameState.setNotice("Function cast rejected. Not enough Compute remains.");
-      return;
+      if (!silent) {
+        gameState.setNotice("Function cast rejected. Not enough Compute remains.");
+      }
+      return false;
     }
 
+    this.resetStatementChain();
     this.animatePlayedCard("ranged");
     this.computeCycle = played.state;
     this.completeAbilityAttempt("ranged", attempt, cardDefinition?.cooldownMs);
@@ -1756,7 +1860,7 @@ export class ArenaScene extends Phaser.Scene {
         `Refund armed. Next ${REFUND_DISCOUNT_ATTACKS} attacks this Active Window cost -${REFUND_DISCOUNT_AMOUNT} Compute.`,
       );
       this.updateAttackQueueHud();
-      return;
+      return true;
     }
 
     this.rangedMovementPauseTimer = ArenaScene.rangedMovementPauseDuration;
@@ -1773,10 +1877,11 @@ export class ArenaScene extends Phaser.Scene {
     const sprite = this.physics.add.image(
       this.player.x + Math.cos(angle) * 28,
       this.player.y + Math.sin(angle) * 28,
-      "qf-bolt",
+      "qf-bolt-glow",
     );
     sprite.setRotation(angle);
     sprite.setDepth(this.player.y + 20);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
 
     const velocity = new Phaser.Math.Vector2(Math.cos(angle), Math.sin(angle)).scale(RANGED_PROJECTILE_SPEED);
     sprite.setVelocity(velocity.x, velocity.y);
@@ -1790,6 +1895,7 @@ export class ArenaScene extends Phaser.Scene {
       hitRadius: 24,
     });
 
+    return true;
   }
 
   private createRefundVisual(): void {
@@ -1862,6 +1968,9 @@ export class ArenaScene extends Phaser.Scene {
     if (hitstopMs > 0) {
       this.applyHitstop(hitstopMs);
       this.cameras.main.shake(60, 0.0015);
+      if (hitstopMs >= ArenaScene.hitstopMeleeMs) {
+        this.createHitFlash(0.1);
+      }
     }
     this.createImpactBurst(drone.sprite.x, drone.sprite.y, angle, 0x60ffd3);
 
@@ -1988,12 +2097,13 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  private tryRequestCycleEnd(): void {
+  private tryRequestCycleEnd(): boolean {
     if (this.computeCycle.phase !== "active" || this.hasCommittedAction()) {
-      return;
+      return false;
     }
 
     this.endCurrentActiveWindow("Cycle ended by operator request.");
+    return true;
   }
 
   private checkAutomaticCycleEnd(): void {
@@ -2022,8 +2132,68 @@ export class ArenaScene extends Phaser.Scene {
 
     this.animateCycleEndDiscard();
     this.computeCycle = endActiveWindow(this.computeCycle);
+    this.resetStatementChain();
     gameState.setNotice(message);
     this.updateAttackQueueHud();
+  }
+
+  private resetStatementChain(): void {
+    this.statementChainIndex = 0;
+    this.statementChainTimerMs = Number.POSITIVE_INFINITY;
+  }
+
+  private bufferKeyboardInputs(): void {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.E)) {
+      this.bufferInput({ action: "cycle-end" });
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.SPACE)) {
+      this.bufferInput({ action: "dash" });
+    }
+  }
+
+  private bufferInput(input: Omit<BufferedInput, "ageMs">): void {
+    if (this.bufferedInputs.length >= 4) {
+      return;
+    }
+
+    this.bufferedInputs.push({ ...input, ageMs: 0 });
+  }
+
+  private advanceBufferedInputs(deltaMs: number): void {
+    this.bufferedInputs = this.bufferedInputs
+      .map((input) => ({ ...input, ageMs: input.ageMs + deltaMs }))
+      .filter((input) => input.ageMs <= INPUT_BUFFER_MS);
+  }
+
+  private processBufferedInputs(pointer: Phaser.Input.Pointer): void {
+    if (this.bufferedInputs.length <= 0) {
+      return;
+    }
+
+    const inputVector = new Phaser.Math.Vector2(
+      (this.cursors.D.isDown ? 1 : 0) - (this.cursors.A.isDown ? 1 : 0),
+      (this.cursors.S.isDown ? 1 : 0) - (this.cursors.W.isDown ? 1 : 0),
+    );
+
+    for (let index = 0; index < this.bufferedInputs.length; index += 1) {
+      const input = this.bufferedInputs[index];
+      const targetX = input.targetX ?? pointer.worldX;
+      const targetY = input.targetY ?? pointer.worldY;
+      const executed =
+        input.action === "dash"
+          ? this.tryDash(inputVector, pointer)
+          : input.action === "melee"
+            ? this.tryMelee(targetX, targetY, true)
+            : input.action === "ranged"
+              ? this.tryRanged(targetX, targetY, true)
+              : this.tryRequestCycleEnd();
+
+      if (executed) {
+        this.bufferedInputs.splice(index, 1);
+        return;
+      }
+    }
   }
 
   private hasCommittedAttack(): boolean {
@@ -2149,8 +2319,10 @@ export class ArenaScene extends Phaser.Scene {
       drone.shadow.setDepth(drone.sprite.y - 12);
       drone.sprite.setDepth(drone.sprite.y + 5);
       drone.sprite.setAngle(Math.sin(this.timelineTimeMs * 0.004 + drone.orbitSeed) * 5);
-      const droneDirection = this.directionFromVector(body.velocity, "s");
-      const droneAction: SpriteAction = drone.attackTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
+      const droneDirection = drone.lungeWindupTimer > 0 || drone.lungeTimer > 0
+        ? this.directionFromVector(drone.lungeDirection, "s")
+        : this.directionFromVector(body.velocity, "s");
+      const droneAction: SpriteAction = drone.attackTimer > 0 || drone.lungeWindupTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
       drone.sprite.play(spriteAnimationKey("drone", droneAction, droneDirection), true);
     }
 
@@ -2297,8 +2469,12 @@ export class ArenaScene extends Phaser.Scene {
     hopper.shadow.setDepth(hopper.sprite.y - 12);
     hopper.sprite.setDepth(hopper.sprite.y + 5);
     hopper.sprite.setAngle(Math.sin(this.timelineTimeMs * 0.006 + hopper.orbitSeed) * 7);
-    const hopperDirection = this.directionFromVector(body.velocity, "s");
-    const hopperAction: SpriteAction = hopper.attackTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
+    const hopperDirection = hopper.shotWindupTimer > 0
+      ? this.directionFromVector(hopper.lockedShotDirection, "s")
+      : hopper.hopWindupTimer > 0 || hopper.hopTimer > 0
+        ? this.directionFromVector(hopper.hopDirection, "s")
+        : this.directionFromVector(body.velocity, "s");
+    const hopperAction: SpriteAction = hopper.attackTimer > 0 || hopper.shotWindupTimer > 0 || hopper.hopWindupTimer > 0 ? "attack" : body.velocity.lengthSq() > 400 ? "run" : "idle";
     hopper.sprite.play(spriteAnimationKey("hopper", hopperAction, hopperDirection), true);
 
     return false;
@@ -2360,11 +2536,12 @@ export class ArenaScene extends Phaser.Scene {
     const sprite = this.physics.add.image(
       hopper.sprite.x + direction.x * 30,
       hopper.sprite.y + direction.y * 24,
-      "qf-bolt",
+      "qf-bolt-glow",
     );
     sprite.setTint(0xff6b35);
     sprite.setRotation(angle);
     sprite.setDepth(hopper.sprite.y + 20);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
 
     const velocity = direction.scale(HOPPER_CHARGED_SHOT_SPEED);
     sprite.setVelocity(velocity.x, velocity.y);
@@ -2387,7 +2564,7 @@ export class ArenaScene extends Phaser.Scene {
       260,
       4,
       0xff6b35,
-      0.34,
+      0.18,
     );
     hopper.hopperShotTelegraph.setOrigin(0, 0.5);
     hopper.hopperShotTelegraph.setDepth(hopper.sprite.depth - 2);
@@ -2409,7 +2586,7 @@ export class ArenaScene extends Phaser.Scene {
       hopper.sprite.y + direction.y * 26,
     );
     hopper.hopperShotTelegraph.setRotation(Math.atan2(direction.y, direction.x));
-    hopper.hopperShotTelegraph.setAlpha(0.28 + progress * 0.48);
+    hopper.hopperShotTelegraph.setAlpha(0.16 + progress * 0.28);
     hopper.hopperShotTelegraph.setDisplaySize(220 + progress * 80, 4 + progress * 5);
     hopper.hopperShotTelegraph.setDepth(hopper.sprite.depth - 2);
     hopper.hopperShotGlow.setPosition(hopper.sprite.x, hopper.sprite.y);
@@ -2433,7 +2610,7 @@ export class ArenaScene extends Phaser.Scene {
       178,
       5,
       0xff4fa4,
-      0.42,
+      0.2,
     );
     drone.lungeTelegraph.setOrigin(0, 0.5);
     drone.lungeTelegraph.setDepth(drone.sprite.depth - 2);
@@ -2452,7 +2629,7 @@ export class ArenaScene extends Phaser.Scene {
       drone.sprite.y + direction.y * 30,
     );
     drone.lungeTelegraph.setRotation(Math.atan2(direction.y, direction.x));
-    drone.lungeTelegraph.setAlpha(0.26 + progress * 0.42);
+    drone.lungeTelegraph.setAlpha(0.14 + progress * 0.24);
     drone.lungeTelegraph.setDisplaySize(160 + progress * 36, 4 + progress * 4);
     drone.lungeTelegraph.setDepth(drone.sprite.depth - 2);
   }
@@ -2847,7 +3024,7 @@ export class ArenaScene extends Phaser.Scene {
     collapseRing.setDepth(this.player.depth + 3);
     this.cameras.main.stopFollow();
     this.cameras.main.shake(260, 0.006);
-    this.cameras.main.zoomTo(1.08, 420, "Sine.easeOut");
+    this.cameras.main.zoomTo(0.85, 560, "Sine.easeOut");
 
     const deathOverlay =
       this.collapseOverlay ??
@@ -3379,13 +3556,14 @@ export class ArenaScene extends Phaser.Scene {
     const sprite = this.physics.add.image(
       this.clampArenaX(projectileSnapshot.position.x),
       this.clampArenaY(projectileSnapshot.position.y),
-      "qf-bolt",
+      "qf-bolt-glow",
     );
     if (type === "hopper-shot") {
       sprite.setTint(0xff6b35);
     }
     sprite.setRotation(projectileSnapshot.rotation);
     sprite.setDepth(projectileSnapshot.position.y + 20);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
     sprite.setVelocity(projectileSnapshot.velocity.x, projectileSnapshot.velocity.y);
 
     return {
@@ -3543,7 +3721,24 @@ export class ArenaScene extends Phaser.Scene {
       Math.atan2(this.player.y - attackerY, this.player.x - attackerX),
       0xff4fa4,
     );
+    this.createHitFlash(0.18);
     this.cameras.main.shake(shakeDuration, shakeIntensity);
+  }
+
+  private createHitFlash(alpha = 0.14): void {
+    const flash = this.trackTransientVisual(this.add.image(this.scale.width / 2, this.scale.height / 2, "qf-hit-flash"));
+    flash.setScrollFactor(0);
+    flash.setDisplaySize(this.scale.width, this.scale.height);
+    flash.setAlpha(alpha);
+    flash.setBlendMode(Phaser.BlendModes.ADD);
+    flash.setDepth(9_997);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 70,
+      ease: "Sine.easeOut",
+      onComplete: () => flash.destroy(),
+    });
   }
 
   private applyHitstop(durationMs: number): void {
@@ -3568,6 +3763,20 @@ export class ArenaScene extends Phaser.Scene {
     angle: number,
     color: number,
   ): void {
+    const ring = this.trackTransientVisual(this.add.image(x, y, "qf-impact-ring"));
+    ring.setTint(color);
+    ring.setAlpha(0.72);
+    ring.setDepth(y + 23);
+    ring.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scale: { from: 0.5, to: 1.35 },
+      duration: 180,
+      ease: "Sine.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
     for (let i = 0; i < ArenaScene.impactSparkCount; i++) {
       const spread = (Math.random() - 0.5) * 2.8;
       const outAngle = angle + spread;
@@ -3594,6 +3803,12 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   private createKillBurst(x: number, y: number): void {
+    const scorch = this.add.image(x, y + 14, "qf-scorch");
+    scorch.setDepth(y - 8);
+    scorch.setAlpha(0.46);
+    scorch.setScale(0.85 + Math.random() * 0.3);
+    scorch.setAngle(Math.random() * 180);
+
     for (let i = 0; i < ArenaScene.killBurstRingCount; i++) {
       const delay = i * 30;
       const ring = this.trackTransientVisual(

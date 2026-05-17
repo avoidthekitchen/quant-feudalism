@@ -17,7 +17,7 @@ import {
 } from "./combat.ts";
 
 test("combat cooldowns preserve the existing action cadence without cache discounts", () => {
-  assert.equal(ABILITY_COOLDOWNS_MS.dash, 1100);
+  assert.equal(ABILITY_COOLDOWNS_MS.dash, 350);
   assert.equal(ABILITY_COOLDOWNS_MS.melee, 350);
   assert.equal(ABILITY_COOLDOWNS_MS.ranged, 820);
 });

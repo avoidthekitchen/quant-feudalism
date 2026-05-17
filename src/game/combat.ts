@@ -1,7 +1,7 @@
 export type CombatAbilityAction = "dash" | "melee" | "ranged";
 
 export const ABILITY_COOLDOWNS_MS: Record<CombatAbilityAction, number> = {
-  dash: 1100,
+  dash: 350,
   melee: 350,
   ranged: 820,
 };
