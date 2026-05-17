@@ -8,10 +8,10 @@ export const ACTOR_FRAME_WIDTH = 192;
 export const ACTOR_FRAME_HEIGHT = 224;
 export const ACTOR_DISPLAY_SCALE = 0.5;
 export const SPRITE_ACTIONS = {
-  idle: 2,
-  run: 4,
-  attack: 3,
-  dash: 3,
+  idle: 4,
+  run: 6,
+  attack: 5,
+  dash: 4,
 } as const;
 
 export type SpriteDirection = (typeof SPRITE_DIRECTIONS)[number];
@@ -190,10 +190,11 @@ function drawPlayerSheetFrame(
   const front = dir.y > 0.25;
   const runCycle = action === "run" ? frame : 0;
   const attackPulse = action === "attack" ? frame : -1;
-  const bob = action === "run" ? (frame % 2 === 0 ? -4 : 2) : action === "idle" && frame === 1 ? -2 : 0;
-  const legA = action === "run" ? [-12, 4, 10, -4][runCycle] : action === "dash" ? -16 : 0;
-  const legB = action === "run" ? [10, -6, -12, 6][runCycle] : action === "dash" ? 6 : 0;
-  const lean = action === "dash" ? side * 10 : side * 4 + (action === "run" ? side * 4 : 0);
+  const idleBob = action === "idle" ? [0, -1, -2, -1][frame] : 0;
+  const bob = action === "run" ? [-4, -1, 2, -3, 1, 3][runCycle] : idleBob;
+  const legA = action === "run" ? [-14, -6, 7, 13, 5, -8][runCycle] : action === "dash" ? -16 - frame * 3 : 0;
+  const legB = action === "run" ? [12, 7, -4, -13, -7, 6][runCycle] : action === "dash" ? 8 + frame : 0;
+  const lean = action === "dash" ? side * (10 + frame * 2) : side * 4 + (action === "run" ? side * (3 + (frame % 3)) : 0);
   const aimSide = side === 0 ? 1 : side;
   const cx = x + 96;
   const ground = y + 200;
@@ -213,6 +214,8 @@ function drawPlayerSheetFrame(
     rect(ctx, cx - side * (76 + frame * 18), y + 100 + frame * 6, 64, 8, "rgba(96, 255, 211, 0.42)");
     rect(ctx, cx - side * (62 + frame * 14), y + 128, 48, 8, "rgba(255, 63, 114, 0.35)");
     rect(ctx, cx - side * (52 + frame * 12), y + 146, 36, 6, "rgba(255, 255, 255, 0.28)");
+    rect(ctx, cx - side * (42 + frame * 22), y + 88 + frame * 7, 10, 4, "rgba(201, 255, 240, 0.42)");
+    rect(ctx, cx - side * (86 + frame * 20), y + 158 - frame * 5, 8, 3, "rgba(255, 79, 164, 0.38)");
   }
 
   const drawBackSword = () => {
@@ -257,25 +260,27 @@ function drawPlayerSheetFrame(
   }
 
   if (attackPulse >= 0) {
-    const reach = 50 + attackPulse * 26;
+    const reach = [34, 56, 106, 86, 52][attackPulse] ?? 70;
+    const attackWidth = attackPulse === 2 ? 12 : attackPulse === 3 ? 8 : 5;
     strokePixelLine(
       ctx,
-      cx + side * 12,
-      torsoY + 36,
+      cx - dir.x * (attackPulse === 0 ? 18 : 4) + side * 12,
+      torsoY + 36 - (attackPulse === 0 ? 8 : 0),
       cx + dir.x * reach + side * 28,
       torsoY + 36 + dir.y * reach * 0.55,
-      attackPulse === 1 ? "#ffffff" : neonTeal,
-      attackPulse === 1 ? 10 : 6,
+      attackPulse === 2 ? "#ffffff" : neonTeal,
+      attackWidth,
     );
     strokePixelLine(
       ctx,
       cx + side * 4,
       torsoY + 44,
-      cx + dir.x * (reach + 24),
+      cx + dir.x * (reach + 28),
       torsoY + 44 + dir.y * reach * 0.5,
       neonRed,
-      4,
+      attackPulse === 2 ? 7 : 4,
     );
+    rect(ctx, cx + dir.x * (reach - 8), torsoY + 28 + dir.y * reach * 0.35, 8, 8, attackPulse === 2 ? "#fff8d6" : "rgba(96, 255, 211, 0.65)");
   } else {
     rect(ctx, cx - 60 + lean - aimSide * 4, torsoY + 36, 26, 14, "#070b12");
     rect(ctx, cx - 62 + lean - aimSide * 4, torsoY + 30, 16, 18, plate);
@@ -347,8 +352,8 @@ function drawDroneSheetFrame(
   const dir = directionVector(direction);
   const side = Math.sign(dir.x);
   const cx = x + 96;
-  const cy = y + 116 + (action === "run" ? Math.sin(frame * Math.PI) * 4 : 0);
-  const wing = action === "idle" ? (frame === 0 ? 0 : 4) : [-14, 8, 14, -8][frame % 4] ?? 0;
+  const cy = y + 116 + (action === "run" ? [-4, 2, 5, -2, 3, -3][frame % 6] : action === "attack" ? frame * 2 : 0);
+  const wing = action === "idle" ? [0, 3, 5, 2][frame] : [-16, -7, 8, 16, 6, -10][frame % 6] ?? 0;
   const attack = action === "attack";
   const dash = action === "dash";
 
@@ -387,7 +392,8 @@ function drawDroneSheetFrame(
   strokePixelLine(ctx, cx + 68 + wing, cy, cx + 90 + wing, cy + 24, "#60ffd3", 4);
 
   if (attack) {
-    strokePixelLine(ctx, cx, cy, cx + dir.x * (68 + frame * 14), cy + dir.y * (44 + frame * 10), "#ff2c54", 8);
+    rect(ctx, cx - 30 - dir.x * frame * 7, cy - 22 - dir.y * frame * 4, 60, 44, `rgba(255, 79, 164, ${0.08 + frame * 0.04})`);
+    strokePixelLine(ctx, cx - dir.x * frame * 8, cy - dir.y * frame * 6, cx + dir.x * (68 + frame * 18), cy + dir.y * (44 + frame * 12), frame >= 3 ? "#ffffff" : "#ff2c54", 8 + frame);
   }
 }
 
@@ -402,10 +408,10 @@ function drawHopperSheetFrame(
   const dir = directionVector(direction);
   const side = Math.sign(dir.x) || 1;
   const cx = x + 96;
-  const hopPulse = action === "run" ? [0, -18, -10, 4][frame % 4] : action === "dash" ? -16 + frame * 4 : 0;
-  const crouch = action === "attack" ? frame * 3 : action === "idle" && frame === 1 ? 2 : 0;
+  const hopPulse = action === "run" ? [0, -12, -20, -8, 4, 1][frame % 6] : action === "dash" ? -16 + frame * 4 : 0;
+  const crouch = action === "attack" ? frame * 3 : action === "idle" ? [0, 1, 2, 1][frame] : 0;
   const cy = y + 136 + hopPulse + crouch;
-  const legSpread = action === "run" ? [32, 52, 42, 24][frame % 4] : action === "attack" ? 26 : 38;
+  const legSpread = action === "run" ? [32, 44, 54, 48, 34, 24][frame % 6] : action === "attack" ? 26 - frame : 38;
   const antennaLift = action === "attack" ? 12 + frame * 5 : 5;
   const glow = action === "attack";
 
@@ -592,6 +598,56 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.generateTexture("qf-floor", 128, 74);
 
   graphics.clear();
+  graphics.fillStyle(0x2b3b47, 1);
+  graphics.fillTriangle(64, 6, 124, 36, 64, 66);
+  graphics.fillTriangle(64, 6, 4, 36, 64, 66);
+  graphics.lineStyle(2, 0x071017, 0.62);
+  graphics.lineBetween(28, 34, 48, 26);
+  graphics.lineBetween(50, 48, 70, 38);
+  graphics.lineBetween(78, 34, 108, 42);
+  graphics.lineStyle(1, 0xff4fa4, 0.32);
+  graphics.lineBetween(30, 35, 46, 28);
+  graphics.lineBetween(80, 35, 106, 42);
+  graphics.generateTexture("qf-floor-cracked", 128, 74);
+
+  graphics.clear();
+  graphics.fillStyle(0x2f4350, 1);
+  graphics.fillTriangle(64, 6, 124, 36, 64, 66);
+  graphics.fillTriangle(64, 6, 4, 36, 64, 66);
+  graphics.lineStyle(2, 0x60ffd3, 0.48);
+  graphics.lineBetween(14, 36, 42, 36);
+  graphics.lineBetween(42, 36, 56, 28);
+  graphics.lineBetween(56, 28, 92, 28);
+  graphics.lineBetween(64, 42, 112, 42);
+  graphics.fillStyle(0xc9fff0, 0.6);
+  graphics.fillRect(54, 26, 5, 5);
+  graphics.fillRect(90, 26, 5, 5);
+  graphics.generateTexture("qf-floor-circuit", 128, 74);
+
+  graphics.clear();
+  graphics.fillStyle(0x1b2934, 1);
+  graphics.fillTriangle(64, 6, 124, 36, 64, 66);
+  graphics.fillTriangle(64, 6, 4, 36, 64, 66);
+  graphics.fillStyle(0x071017, 0.56);
+  graphics.fillEllipse(64, 40, 74, 24);
+  graphics.lineStyle(1, 0x9fffea, 0.22);
+  graphics.strokeEllipse(64, 40, 82, 30);
+  graphics.generateTexture("qf-floor-pool", 128, 74);
+
+  graphics.clear();
+  graphics.fillStyle(0x263844, 1);
+  graphics.fillTriangle(64, 6, 124, 36, 64, 66);
+  graphics.fillTriangle(64, 6, 4, 36, 64, 66);
+  graphics.lineStyle(1, 0x0b151d, 0.72);
+  for (let i = 0; i < 6; i += 1) {
+    graphics.lineBetween(28 + i * 14, 22, 16 + i * 14, 50);
+    graphics.lineBetween(18 + i * 18, 34, 42 + i * 18, 48);
+  }
+  graphics.lineStyle(1, 0xffcf66, 0.22);
+  graphics.lineBetween(24, 54, 104, 22);
+  graphics.generateTexture("qf-floor-grate", 128, 74);
+
+  graphics.clear();
   graphics.fillStyle(0x02060a, 0.72);
   graphics.fillEllipse(44, 18, 78, 24);
   graphics.fillStyle(0x0df2c9, 0.12);
@@ -713,6 +769,15 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.generateTexture("qf-bolt", 48, 18);
 
   graphics.clear();
+  graphics.fillStyle(0x60ffd3, 0.18);
+  graphics.fillEllipse(30, 10, 72, 24);
+  graphics.fillStyle(0xff4fa4, 0.12);
+  graphics.fillEllipse(24, 10, 48, 16);
+  graphics.fillStyle(0xffffff, 0.92);
+  graphics.fillRect(22, 7, 26, 6);
+  graphics.generateTexture("qf-bolt-glow", 72, 24);
+
+  graphics.clear();
   graphics.fillStyle(0x60ffd3, 0.36);
   graphics.fillTriangle(10, 48, 96, 8, 82, 90);
   graphics.fillStyle(0xff4fa4, 0.24);
@@ -720,6 +785,17 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.lineStyle(2, 0xf5fffd, 0.85);
   graphics.strokeTriangle(10, 48, 96, 8, 82, 90);
   graphics.generateTexture("qf-slash", 96, 96);
+
+  graphics.clear();
+  graphics.fillStyle(0x60ffd3, 0.16);
+  graphics.fillTriangle(4, 58, 118, 8, 92, 118);
+  graphics.fillStyle(0xff4fa4, 0.24);
+  graphics.fillTriangle(22, 56, 108, 30, 124, 94);
+  graphics.lineStyle(5, 0xffffff, 0.78);
+  graphics.lineBetween(18, 58, 100, 20);
+  graphics.lineStyle(3, 0xffcf66, 0.72);
+  graphics.lineBetween(34, 76, 112, 88);
+  graphics.generateTexture("qf-slash-heavy", 128, 128);
 
   graphics.clear();
   graphics.fillStyle(0x60ffd3, 0.1);
@@ -736,6 +812,27 @@ export function createGeneratedArt(scene: Phaser.Scene): void {
   graphics.fillStyle(0x60ffd3, 0.48);
   graphics.fillCircle(5, 5, 5);
   graphics.generateTexture("qf-spark", 10, 10);
+
+  graphics.clear();
+  graphics.lineStyle(3, 0xffffff, 0.78);
+  graphics.strokeCircle(32, 32, 18);
+  graphics.lineStyle(2, 0x60ffd3, 0.42);
+  graphics.strokeCircle(32, 32, 26);
+  graphics.generateTexture("qf-impact-ring", 64, 64);
+
+  graphics.clear();
+  graphics.fillStyle(0xffffff, 1);
+  graphics.fillRect(0, 0, 8, 8);
+  graphics.generateTexture("qf-hit-flash", 8, 8);
+
+  graphics.clear();
+  graphics.fillStyle(0x020408, 0.42);
+  graphics.fillEllipse(44, 18, 74, 22);
+  graphics.lineStyle(1, 0xff4fa4, 0.24);
+  graphics.lineBetween(18, 17, 70, 20);
+  graphics.lineStyle(1, 0xffcf66, 0.2);
+  graphics.lineBetween(28, 12, 56, 26);
+  graphics.generateTexture("qf-scorch", 88, 36);
 
   graphics.destroy();
 }
